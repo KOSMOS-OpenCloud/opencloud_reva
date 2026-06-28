@@ -476,6 +476,14 @@ func (t *Tree) ListFolder(ctx context.Context, n *node.Node) ([]*node.Node, erro
 		_ = f.Close()
 	}()
 
+	// skip listing children of directories with .ocignore containing "*"
+	ignoreFile := filepath.Join(dir, ".ocignore")
+	if data, err := os.ReadFile(ignoreFile); err == nil {
+		if strings.TrimSpace(string(data)) == "*" {
+			return []*node.Node{}, nil
+		}
+	}
+
 	_, subspan = tracer.Start(ctx, "f.Readdirnames")
 	names, err := f.Readdirnames(0)
 	subspan.End()

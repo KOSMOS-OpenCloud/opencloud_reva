@@ -863,7 +863,11 @@ func (t *Tree) WarmupIDCache(root string, assimilate, onlyDirty bool) error {
 	sizes := make(map[string]int64)
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			t.log.Warn().Err(err).Str("path", path).Msg("error accessing path during warmup, skipping")
+			if info != nil && info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		// skip irrelevant files
@@ -879,6 +883,29 @@ func (t *Tree) WarmupIDCache(root string, assimilate, onlyDirty bool) error {
 		}
 		if t.Ignorer.IsRootPath(path) {
 			return nil // ignore the root paths
+		}
+
+		// skip directories containing .ocignore with "*"
+		if info.IsDir() {
+			ignoreFile := filepath.Join(path, ".ocignore")
+			if data, err := os.ReadFile(ignoreFile); err == nil {
+				content := strings.TrimSpace(string(data))
+				if content == "*" {
+					// cache this directory's own ID before skipping children,
+					// so directory listings don't trigger on-demand assimilation
+					nodeSpaceID, id, _, _, identErr := t.lookup.MetadataBackend().IdentifyPath(context.Background(), path)
+					if identErr == nil && len(id) > 0 {
+						if len(nodeSpaceID) > 0 {
+							spaceID = nodeSpaceID
+						}
+						if spaceID != "" {
+							_ = t.lookup.CacheID(context.Background(), spaceID, id, path)
+						}
+					}
+					t.log.Info().Str("path", path).Msg("skipping directory due to .ocignore")
+					return filepath.SkipDir
+				}
+			}
 		}
 
 		if !info.IsDir() && !info.Mode().IsRegular() {
@@ -977,7 +1004,9 @@ func (t *Tree) WarmupIDCache(root string, assimilate, onlyDirty bool) error {
 		}
 
 		if info.IsDir() {
-			return t.setDirty(path, false)
+			if err := t.setDirty(path, false); err != nil {
+				t.log.Warn().Err(err).Str("path", path).Msg("could not set dirty flag on directory, skipping")
+			}
 		}
 		return nil
 	})
