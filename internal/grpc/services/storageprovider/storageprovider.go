@@ -34,7 +34,7 @@ import (
 	rpc "github.com/cs3org/go-cs3apis/cs3/rpc/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	typesv1beta1 "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
-	"github.com/mitchellh/mapstructure"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/opencloud-eu/reva/v2/pkg/appctx"
 	"github.com/opencloud-eu/reva/v2/pkg/conversions"
 	ctxpkg "github.com/opencloud-eu/reva/v2/pkg/ctx"
@@ -660,6 +660,12 @@ func (s *Service) UpdateStorageSpace(ctx context.Context, req *provider.UpdateSt
 		return nil, err
 	}
 	s.addMissingStorageProviderID(res.GetStorageSpace().GetRoot(), res.GetStorageSpace().GetId())
+	if res.Opaque == nil {
+		res.Opaque = &typesv1beta1.Opaque{
+			Map: map[string]*typesv1beta1.OpaqueEntry{},
+		}
+	}
+	res.Opaque.Map["grants"] = res.StorageSpace.GetOpaque().GetMap()["grants"]
 	return res, nil
 }
 
@@ -677,7 +683,10 @@ func (s *Service) DeleteStorageSpace(ctx context.Context, req *provider.DeleteSt
 		case errtypes.IsNotFound:
 			st = status.NewNotFound(ctx, "space not found")
 		case errtypes.PermissionDenied:
-			st = status.NewPermissionDenied(ctx, err, "permission denied")
+			// The requesting user, while being a member of the space, is currently
+			// not allowed to list that space. E.g. because it is disabled. Return
+			// a "NotFound" status here.
+			st = status.NewNotFound(ctx, "space not found")
 		case errtypes.BadRequest:
 			st = status.NewInvalid(ctx, err.Error())
 		default:

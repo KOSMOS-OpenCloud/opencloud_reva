@@ -34,6 +34,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/errtypes"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/fs/posix/idcache"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/fs/posix/options"
+	dfslookup "github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/lookup"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata/prefixes"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/node"
@@ -48,7 +49,11 @@ import (
 
 var tracer trace.Tracer
 
-const MetadataDir = ".oc-nodes"
+const (
+	IndexesDir  = dfslookup.IndexesDir
+	MetadataDir = ".oc-nodes"
+	TrashDir    = ".Trash"
+)
 
 var _spaceTypePersonal = "personal"
 var _spaceTypeProject = "project"
@@ -432,7 +437,7 @@ func (lu *Lookup) CopyMetadataWithSourceLock(ctx context.Context, src, target me
 		return errors.New("lockpath does not match filepath")
 	}
 
-	attrs, err := lu.metadataBackend.All(ctx, src)
+	attrs, err := lu.metadataBackend.AllWithLockedSource(ctx, src, lockedSource)
 	if err != nil {
 		return err
 	}

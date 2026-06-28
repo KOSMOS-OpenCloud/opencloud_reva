@@ -27,6 +27,7 @@ import (
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/opencloud-eu/reva/v2/pkg/storage/fs/posix/lookup"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata/prefixes"
 	helpers "github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/testhelpers"
 	"github.com/stretchr/testify/mock"
@@ -81,7 +82,8 @@ var _ = Describe("Grants", func() {
 
 	Context("with no permissions", func() {
 		JustBeforeEach(func() {
-			env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything, mock.Anything).Return(&provider.ResourcePermissions{}, nil)
+			env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything).Unset()
+			env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything).Return(&provider.ResourcePermissions{}, nil)
 		})
 
 		Describe("AddGrant", func() {
@@ -94,7 +96,8 @@ var _ = Describe("Grants", func() {
 
 	Context("with insufficient permissions", func() {
 		JustBeforeEach(func() {
-			env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything, mock.Anything).Return(&provider.ResourcePermissions{
+			env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything).Unset()
+			env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything).Return(&provider.ResourcePermissions{
 				Stat: true,
 			}, nil)
 		})
@@ -109,7 +112,7 @@ var _ = Describe("Grants", func() {
 
 	Context("with sufficient permissions", func() {
 		JustBeforeEach(func() {
-			env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything, mock.Anything).Return(&provider.ResourcePermissions{
+			env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything).Return(&provider.ResourcePermissions{
 				Stat:        true,
 				AddGrant:    true,
 				ListGrants:  true,
@@ -138,7 +141,7 @@ var _ = Describe("Grants", func() {
 				err := env.Fs.AddGrant(env.Ctx, ref, grant)
 				Expect(err).ToNot(HaveOccurred())
 
-				indexPath := filepath.Join(env.Root, "indexes", "by-type", "share.mpk")
+				indexPath := filepath.Join(env.Root, lookup.IndexesDir, "by-type", "share.mpk")
 				_, err = os.Stat(indexPath)
 				Expect(err).ToNot(HaveOccurred())
 			})

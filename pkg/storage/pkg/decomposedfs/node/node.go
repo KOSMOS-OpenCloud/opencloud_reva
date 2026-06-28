@@ -360,8 +360,39 @@ func (n *Node) SpaceOwnerOrManager(ctx context.Context) *userpb.UserId {
 	return nil
 }
 
+func LockAndReadNode(ctx context.Context, lu PathLookup, spaceID, nodeID, internalPath string, canListDisabledSpace bool, spaceRoot *Node, skipParentCheck bool) (*Node, metadata.UnlockFunc, error) {
+	ctx, span := tracer.Start(ctx, "LockAndReadNode")
+	defer span.End()
+
+	_, subspan := tracer.Start(ctx, "lockedfile.OpenFile")
+	bn := NewBaseNode(spaceID, nodeID, lu)
+	unlock, r, err := lu.MetadataBackend().LockAndRead(bn)
+	subspan.End()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	n, err := readNode(ctx, lu, spaceID, nodeID, internalPath, canListDisabledSpace, spaceRoot, skipParentCheck, r)
+	if err != nil {
+		_ = unlock()
+		return nil, nil, err
+	}
+	if !n.Exists {
+		_ = unlock()
+		return n, nil, errtypes.NotFound(filepath.Join(n.ParentID, n.Name))
+	}
+
+	return n, unlock, nil
+}
+
 // ReadNode creates a new instance from an id and checks if it exists
 func ReadNode(ctx context.Context, lu PathLookup, spaceID, nodeID, internalPath string, canListDisabledSpace bool, spaceRoot *Node, skipParentCheck bool) (*Node, error) {
+	return readNode(ctx, lu, spaceID, nodeID, internalPath, canListDisabledSpace, spaceRoot, skipParentCheck, nil)
+}
+
+// readNode reads a node by its id. If a reader is provided, it will be passed to the metadata backend to read the metadata.
+// This is useful when the caller already holds a lock to prevent deadlocks when reading the metadata.
+func readNode(ctx context.Context, lu PathLookup, spaceID, nodeID, internalPath string, canListDisabledSpace bool, spaceRoot *Node, skipParentCheck bool, r io.Reader) (*Node, error) {
 	ctx, span := tracer.Start(ctx, "ReadNode")
 	defer span.End()
 	var err error
@@ -376,6 +407,20 @@ func ReadNode(ctx context.Context, lu PathLookup, spaceID, nodeID, internalPath 
 			},
 		}
 		spaceRoot.SpaceRoot = spaceRoot
+
+		// If we hold the lock on the space root itself, prime its attribute cache
+		// through the no-lock path so the owner/name/disabled reads below do not try
+		// to re-acquire the already-held lock and self-deadlock.
+		if r != nil && nodeID == spaceID {
+			_, err = spaceRoot.XattrsWithReader(ctx, r)
+			switch {
+			case metadata.IsNotExist(err):
+				return spaceRoot, nil // swallow not found, the node defaults to exists = false
+			case err != nil:
+				return nil, err
+			}
+		}
+
 		spaceRoot.owner, err = spaceRoot.readOwner(ctx)
 		switch {
 		case metadata.IsNotExist(err):
@@ -440,7 +485,8 @@ func ReadNode(ctx context.Context, lu PathLookup, spaceID, nodeID, internalPath 
 		}
 	}()
 
-	attrs, err := n.Xattrs(ctx)
+	var attrs Attributes
+	attrs, err = n.XattrsWithReader(ctx, r)
 	switch {
 	case metadata.IsNotExist(err):
 		return n, nil // swallow not found, the node defaults to exists = false

@@ -37,6 +37,10 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
+const (
+	ChangesDir = "changes"
+)
+
 var _propagationGracePeriod = 3 * time.Minute
 
 type PropagationNode interface {
@@ -80,7 +84,7 @@ func NewAsyncPropagator(treeSizeAccounting, treeTimeAccounting bool, o options.A
 			return
 		}
 
-		changesDirPath := filepath.Join(p.lookup.InternalRoot(), "changes")
+		changesDirPath := filepath.Join(p.lookup.InternalRoot(), ChangesDir)
 		doSleep := false // switch to not sleep on the first iteration
 		for {
 			if doSleep {
@@ -281,28 +285,19 @@ func (p AsyncPropagator) propagate(ctx context.Context, pn PropagationNode, reca
 
 	attrs := node.Attributes{}
 
-	// lock parent before reading treesize or tree time
-	_, subspan = tracer.Start(ctx, "lockedfile.OpenFile")
-	unlock, err := p.lookup.MetadataBackend().Lock(pn)
+	_, subspan = tracer.Start(ctx, "node.LockAndReadNode")
+	n, unlock, err := node.LockAndReadNode(ctx, p.lookup, pn.GetSpaceID(), pn.GetID(), "", false, nil, false)
 	subspan.End()
 	if err != nil {
-		log.Error().Err(err).
-			Str("lock filepath", p.lookup.MetadataBackend().LockfilePath(pn)).
-			Msg("Propagation failed. Could not open metadata for node with lock.")
+		if n != nil && !n.Exists {
+			log.Debug().Str("attr", prefixes.PropagationAttr).Msg("node does not exist anymore, not propagating")
+		} else {
+			log.Error().Err(err).Msg("Propagation failed. Could not read node with lock.")
+		}
 		cleanup()
 		return
 	}
 	defer func() { _ = unlock() }()
-
-	_, subspan = tracer.Start(ctx, "node.ReadNode")
-	n, err := node.ReadNode(ctx, p.lookup, pn.GetSpaceID(), pn.GetID(), "", false, nil, false)
-	if err != nil {
-		log.Error().Err(err).
-			Msg("Propagation failed. Could not read node.")
-		cleanup()
-		return
-	}
-	subspan.End()
 
 	if !n.Exists {
 		log.Debug().Str("attr", prefixes.PropagationAttr).Msg("node does not exist anymore, not propagating")
@@ -426,5 +421,5 @@ func (p AsyncPropagator) propagate(ctx context.Context, pn PropagationNode, reca
 }
 
 func (p AsyncPropagator) changesPath(spaceID, nodeID, filename string) string {
-	return filepath.Join(p.lookup.InternalRoot(), "changes", spaceID[0:2], spaceID+":"+nodeID, filename)
+	return filepath.Join(p.lookup.InternalRoot(), ChangesDir, spaceID[0:2], spaceID+":"+nodeID, filename)
 }

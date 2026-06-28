@@ -28,7 +28,7 @@ import (
 	collaboration "github.com/cs3org/go-cs3apis/cs3/sharing/collaboration/v1beta1"
 	link "github.com/cs3org/go-cs3apis/cs3/sharing/link/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
-	"github.com/mitchellh/mapstructure"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/opencloud-eu/reva/v2/pkg/appctx"
 	revactx "github.com/opencloud-eu/reva/v2/pkg/ctx"
 	"github.com/opencloud-eu/reva/v2/pkg/events"
@@ -169,11 +169,12 @@ func NewUnary(m map[string]interface{}) (grpc.UnaryServerInterceptor, int, error
 		case *provider.UpdateStorageSpaceResponse:
 			if isSuccess(v) {
 				r := req.(*provider.UpdateStorageSpaceRequest)
-				if r.StorageSpace.Name != "" {
-					ev = SpaceRenamed(v, r, executant)
-				} else if utils.ExistsInOpaque(r.Opaque, "restore") {
+				switch {
+				case utils.ExistsInOpaque(r.Opaque, "restore"):
 					ev = SpaceEnabled(v, r, executant)
-				} else {
+				case r.StorageSpace.Name != "":
+					ev = SpaceRenamed(v, r, executant)
+				default:
 					ev = SpaceUpdated(v, r, executant)
 				}
 			}
