@@ -1023,6 +1023,18 @@ func (n *Node) AsResourceInfo(ctx context.Context, rp *provider.ResourcePermissi
 
 		}
 	}
+	// kosmos debug: log custom metadata found
+	if len(metadata) > 0 {
+		sublog.Info().Interface("kosmos_metadata", metadata).Interface("mdKeys", mdKeys).Str("name", n.Name).Msg("kosmos: custom metadata read")
+	} else if len(mdKeys) > 0 {
+		mdAttrs := []string{}
+		for key := range attrs {
+			if strings.HasPrefix(key, prefixes.MetadataPrefix) {
+				mdAttrs = append(mdAttrs, key)
+			}
+		}
+		sublog.Info().Interface("mdKeys", mdKeys).Strs("md_xattrs_on_disk", mdAttrs).Str("name", n.Name).Bool("returnAll", returnAllMetadata).Msg("kosmos: no custom metadata matched")
+	}
 	ri.ArbitraryMetadata = &provider.ArbitraryMetadata{
 		Metadata: metadata,
 	}
