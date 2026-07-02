@@ -30,6 +30,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/auth/manager/registry"
 	"github.com/opencloud-eu/reva/v2/pkg/errtypes"
 	"github.com/opencloud-eu/reva/v2/pkg/rgrpc/todo/pool"
+	"github.com/opencloud-eu/reva/v2/pkg/utils"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 )
@@ -96,5 +97,15 @@ func (m *manager) Authenticate(ctx context.Context, username, password string) (
 		return nil, nil, errtypes.InternalError(appAuthResponse.Status.Message)
 	}
 
-	return userResponse.GetUser(), appAuthResponse.GetAppPassword().TokenScope, nil
+	u := userResponse.GetUser()
+	appPwd := appAuthResponse.GetAppPassword()
+
+	// Propagate app token label into user opaque so downstream services
+	// can identify which specific app token was used for authentication.
+	// This enables scenarios like worker identification in job pipelines.
+	if label := appPwd.GetLabel(); label != "" {
+		u.Opaque = utils.AppendPlainToOpaque(u.Opaque, "app-token-label", label)
+	}
+
+	return u, appPwd.TokenScope, nil
 }
