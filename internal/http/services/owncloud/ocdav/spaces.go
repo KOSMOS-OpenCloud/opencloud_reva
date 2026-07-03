@@ -61,14 +61,14 @@ func (h *SpacesHandler) Handler(s *svc, trashbinHandler *TrashbinHandler) http.H
 			return
 		}
 
-		// Preserve trailing slash that ShiftPath/path.Clean removes.
-		// Needed for zipfs: /archive.zip/ (browse) vs /archive.zip (download)
-		hadTrailingSlash := len(r.URL.Path) > 1 && r.URL.Path[len(r.URL.Path)-1] == '/'
+		origPath := r.URL.Path
 
 		var segment string
 		segment, r.URL.Path = router.ShiftPath(r.URL.Path)
 
-		if hadTrailingSlash && !strings.HasSuffix(r.URL.Path, "/") {
+		// ShiftPath uses path.Clean which strips trailing slashes.
+		// Restore if the original path had one (needed for zipfs archive browsing).
+		if strings.HasSuffix(origPath, "/") && !strings.HasSuffix(r.URL.Path, "/") && r.URL.Path != "/" {
 			r.URL.Path = r.URL.Path + "/"
 		}
 		if segment == "" {
