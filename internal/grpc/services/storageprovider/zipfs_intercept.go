@@ -12,8 +12,8 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/storage/fs/zipfs"
 )
 
-// zipCache is a shared cache for opened ZIP archives.
-var zipCache = zipfs.NewCache(0)
+// zipCache uses the shared global cache.
+var zipCache = zipfs.GlobalCache()
 
 // tryZipStat handles Stat requests for paths inside ZIP archives.
 // Returns (response, handled). If handled=false, the caller should
@@ -113,23 +113,36 @@ func (s *Service) tryZipListContainer(ctx context.Context, ref *provider.Referen
 	}, true
 }
 
+// InternalPather is an optional interface for storage drivers that can
+// resolve a reference to an on-disk file path (e.g. posixfs).
+type InternalPather interface {
+	InternalPath(ctx context.Context, ref *provider.Reference) (string, error)
+}
+
 // getDiskPath resolves a reference to an on-disk file path.
-// This works for posixfs where InternalPath() maps directly.
-// For decomposedfs this would need the blob path — returns "" if unavailable.
+// Works for posixfs (which implements InternalPather or has direct paths).
+// Returns "" for storage drivers that don't expose file paths (e.g. decomposedfs with S3 blobs).
 func getDiskPath(ctx context.Context, s *Service, ref *provider.Reference) string {
-	// Try to get the internal path via GetPathByID + root
-	// For posixfs, the path is the actual filesystem path
-	p, err := s.Storage.GetPathByID(ctx, ref.GetResourceId())
+	// Check if the storage driver can give us a direct path
+	if ip, ok := s.Storage.(InternalPather); ok {
+		p, err := ip.InternalPath(ctx, ref)
+		if err == nil {
+			return p
+		}
+	}
+
+	// Fallback: try GetMD and check if the resource has an opaque internal path
+	md, err := s.Storage.GetMD(ctx, ref, nil, nil)
 	if err != nil {
 		return ""
 	}
 
-	// Combine with ref.Path to get the full internal path
-	// The storage root is needed — we get it from the space
-	fullPath := filepath.Join(p, strings.TrimPrefix(ref.Path, "/"))
+	// Check opaque for internal path hint (posixfs sets this)
+	if md.GetOpaque() != nil {
+		if entry, ok := md.GetOpaque().GetMap()["internal-path"]; ok {
+			return string(entry.GetValue())
+		}
+	}
 
-	// For posixfs, this should be the actual file path
-	// For decomposedfs, this won't work (returns node path, not blob path)
-	// TODO: add decomposedfs support via blobstore
-	return fullPath
+	return ""
 }

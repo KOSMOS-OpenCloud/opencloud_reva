@@ -177,6 +177,14 @@ func (c *Cache) Close() {
 	c.entries = make(map[string]*CachedArchive)
 }
 
+// globalCache is the shared cache instance.
+var globalCache = NewCache(0)
+
+// GlobalCache returns the shared ZIP archive cache.
+func GlobalCache() *Cache {
+	return globalCache
+}
+
 // ListFolder returns the contents of a directory inside the ZIP.
 func ListFolder(a *CachedArchive, innerPath string, spaceID string) ([]*provider.ResourceInfo, error) {
 	prefix := ""
