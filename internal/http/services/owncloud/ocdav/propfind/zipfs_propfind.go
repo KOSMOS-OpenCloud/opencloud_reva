@@ -1,8 +1,8 @@
 package propfind
 
 import (
-	"encoding/xml"
 	"fmt"
+	"html"
 	"net/http"
 	"path"
 	"strconv"
@@ -113,10 +113,10 @@ func (p *Handler) tryZipPropfind(w http.ResponseWriter, r *http.Request, spaceID
 }
 
 func writeResponse(w http.ResponseWriter, href string, info *provider.ResourceInfo) {
-	fmt.Fprintf(w, `<d:response><d:href>%s</d:href><d:propstat><d:prop>`, xml.EscapeString(href))
+	fmt.Fprintf(w, `<d:response><d:href>%s</d:href><d:propstat><d:prop>`, html.EscapeString(href))
 
-	fmt.Fprintf(w, `<oc:name>%s</oc:name>`, xml.EscapeString(info.GetName()))
-	fmt.Fprintf(w, `<d:displayname>%s</d:displayname>`, xml.EscapeString(info.GetName()))
+	fmt.Fprintf(w, `<oc:name>%s</oc:name>`, html.EscapeString(info.GetName()))
+	fmt.Fprintf(w, `<d:displayname>%s</d:displayname>`, html.EscapeString(info.GetName()))
 
 	if info.GetType() == provider.ResourceType_RESOURCE_TYPE_CONTAINER {
 		fmt.Fprint(w, `<d:resourcetype><d:collection/></d:resourcetype>`)
