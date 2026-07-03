@@ -827,6 +827,11 @@ func (s *Service) Stat(ctx context.Context, req *provider.StatRequest) (*provide
 		Value: attribute.StringValue(req.GetRef().String()),
 	})
 
+	// ZIP archive interceptor: if path points inside a .zip file, serve from archive
+	if resp, handled := s.tryZipStat(ctx, req.GetRef()); handled {
+		return resp, nil
+	}
+
 	md, err := s.Storage.GetMD(ctx, req.GetRef(), req.GetArbitraryMetadataKeys(), req.GetFieldMask().GetPaths())
 	if err != nil {
 		return &provider.StatResponse{
@@ -892,6 +897,11 @@ func (s *Service) ListContainerStream(req *provider.ListContainerStreamRequest, 
 }
 
 func (s *Service) ListContainer(ctx context.Context, req *provider.ListContainerRequest) (*provider.ListContainerResponse, error) {
+	// ZIP archive interceptor
+	if resp, handled := s.tryZipListContainer(ctx, req.GetRef()); handled {
+		return resp, nil
+	}
+
 	mds, err := s.Storage.ListFolder(ctx, req.GetRef(), req.GetArbitraryMetadataKeys(), req.GetFieldMask().GetPaths())
 	res := &provider.ListContainerResponse{
 		Status: status.NewStatusFromErrType(ctx, "list container", err),
