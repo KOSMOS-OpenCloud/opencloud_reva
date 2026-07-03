@@ -19,13 +19,17 @@ import (
 // tryZipPropfind intercepts PROPFIND for paths inside ZIP archives.
 // Returns true if the request was handled.
 func (p *Handler) tryZipPropfind(w http.ResponseWriter, r *http.Request, spaceID string) bool {
+	ctx := r.Context()
+	log := appctx.GetLogger(ctx)
+
+	log.Debug().Str("url_path", r.URL.Path).Str("spaceID", spaceID).Msg("zipfs: checking PROPFIND path")
+
 	zipPath, innerPath, found := zipfs.PathSplit(r.URL.Path)
 	if !found {
 		return false
 	}
 
-	ctx := r.Context()
-	log := appctx.GetLogger(ctx)
+	log.Info().Str("zip_path", zipPath).Str("inner_path", innerPath).Msg("zipfs: PROPFIND intercepted")
 
 	// Stat the ZIP file itself
 	zipRef, err := spacelookup.MakeStorageSpaceReference(spaceID, zipPath)
