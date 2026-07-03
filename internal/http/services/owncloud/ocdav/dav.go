@@ -156,8 +156,15 @@ func (h *DavHandler) Handler(s *svc) http.Handler {
 			}
 		}
 
+		origDavPath := r.URL.Path
+
 		var head string
 		head, r.URL.Path = router.ShiftPath(r.URL.Path)
+
+		// Restore trailing slash stripped by path.Clean in ShiftPath
+		if strings.HasSuffix(origDavPath, "/") && !strings.HasSuffix(r.URL.Path, "/") && r.URL.Path != "/" {
+			r.URL.Path = r.URL.Path + "/"
+		}
 
 		switch head {
 		case "avatars":
