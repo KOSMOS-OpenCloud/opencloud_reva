@@ -22,14 +22,14 @@ func (p *Handler) tryZipPropfind(w http.ResponseWriter, r *http.Request, spaceID
 	ctx := r.Context()
 	log := appctx.GetLogger(ctx)
 
-	log.Debug().Str("url_path", r.URL.Path).Str("spaceID", spaceID).Msg("zipfs: checking PROPFIND path")
+	log.Info().Str("url_path", r.URL.Path).Str("spaceID", spaceID).Msg("zipfs: checking PROPFIND path")
 
 	zipPath, innerPath, found := zipfs.PathSplit(r.URL.Path)
 	if !found {
 		return false
 	}
 
-	log.Info().Str("zip_path", zipPath).Str("inner_path", innerPath).Msg("zipfs: PROPFIND intercepted")
+	log.Warn().Str("zip_path", zipPath).Str("inner_path", innerPath).Msg("zipfs: PROPFIND intercepted")
 
 	// Stat the ZIP file itself
 	zipRef, err := spacelookup.MakeStorageSpaceReference(spaceID, zipPath)
