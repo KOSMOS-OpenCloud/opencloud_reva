@@ -60,6 +60,13 @@ func PathSplit(p string) (zipPath, innerPath string, found bool) {
 	return "", "", false
 }
 
+// LooksLikeArchive checks if a path ends with a known archive extension.
+// Used as fallback when the router strips the trailing slash.
+func LooksLikeArchive(p string) bool {
+	lower := strings.ToLower(strings.TrimSuffix(p, "/"))
+	return strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".7z")
+}
+
 // IsFile checks if the given path is a regular file (not a directory).
 // Use this after PathSplit to confirm the .zip path is actually a file
 // before entering ZIP mode. A directory named "reports.zip" must not

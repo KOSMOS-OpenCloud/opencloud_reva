@@ -61,8 +61,16 @@ func (h *SpacesHandler) Handler(s *svc, trashbinHandler *TrashbinHandler) http.H
 			return
 		}
 
+		// Preserve trailing slash that ShiftPath/path.Clean removes.
+		// Needed for zipfs: /archive.zip/ (browse) vs /archive.zip (download)
+		hadTrailingSlash := len(r.URL.Path) > 1 && r.URL.Path[len(r.URL.Path)-1] == '/'
+
 		var segment string
 		segment, r.URL.Path = router.ShiftPath(r.URL.Path)
+
+		if hadTrailingSlash && !strings.HasSuffix(r.URL.Path, "/") {
+			r.URL.Path = r.URL.Path + "/"
+		}
 		if segment == "" {
 			// listing is disabled, no auth will change that
 			w.WriteHeader(http.StatusMethodNotAllowed)
