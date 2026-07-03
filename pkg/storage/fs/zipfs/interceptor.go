@@ -301,7 +301,7 @@ func makeFileInfo(spaceID string, f *zip.File) *provider.ResourceInfo {
 		Name:     path.Base(f.Name),
 		Size:     f.UncompressedSize64,
 		Mtime:    &typespb.Timestamp{Seconds: uint64(f.Modified.Unix())},
-		Checksum: &provider.ResourceChecksum{Type: provider.ResourceChecksumType_RESOURCE_CHECKSUM_TYPE_CRC32, Sum: fmt.Sprintf("%08x", f.CRC32)},
+		Checksum: &provider.ResourceChecksum{Type: provider.ResourceChecksumType_RESOURCE_CHECKSUM_TYPE_UNSET, Sum: fmt.Sprintf("%08x", f.CRC32)},
 	}
 }
 
