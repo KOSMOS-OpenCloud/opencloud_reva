@@ -24,31 +24,52 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/errtypes"
 )
 
-// PathSplit splits a path at the first .zip/ boundary.
-// Returns (zipPath, innerPath, isZipPath).
+// PathSplit finds potential .zip/ boundaries in a path.
+// Returns (zipPath, innerPath, found).
+// This only does string analysis — the caller MUST verify that zipPath
+// is actually a file (not a directory) before entering ZIP mode.
+//
 // Example: "/docs/archive.zip/readme.md" → ("/docs/archive.zip", "readme.md", true)
-// Example: "/docs/archive.zip" → ("", "", false) — no inner path, not a zip browse
-func PathSplit(p string) (zipPath, innerPath string, isZipPath bool) {
+// Example: "/docs/archive.zip/" → ("/docs/archive.zip", "", true)
+// Example: "/docs/archive.zip" → ("", "", false) — no slash after .zip = normal file
+func PathSplit(p string) (zipPath, innerPath string, found bool) {
 	lower := strings.ToLower(p)
-	// Find .zip/ in the path (the slash after .zip is the trigger)
-	idx := strings.Index(lower, ".zip/")
-	if idx < 0 {
-		// Check if path ends with .zip/ (trailing slash = list root)
-		if strings.HasSuffix(lower, ".zip/") || strings.HasSuffix(lower, ".zip") {
-			clean := strings.TrimSuffix(p, "/")
-			if strings.HasSuffix(strings.ToLower(clean), ".zip") {
-				// Only trigger if explicitly has trailing slash (= browse intent)
-				if strings.HasSuffix(p, "/") {
-					return clean, "", true
-				}
-			}
+
+	// Search for all .zip/ occurrences — there could be a directory named x.zip
+	// containing a file named y.zip/... so we try each candidate
+	search := lower
+	offset := 0
+	for {
+		idx := strings.Index(search, ".zip/")
+		if idx < 0 {
+			break
 		}
-		return "", "", false
+		candidate := p[:offset+idx+4] // include ".zip"
+		rest := p[offset+idx+5:]      // after ".zip/"
+		return candidate, strings.TrimPrefix(rest, "/"), true
 	}
-	zipPath = p[:idx+4] // include ".zip"
-	innerPath = p[idx+5:]
-	innerPath = strings.TrimPrefix(innerPath, "/")
-	return zipPath, innerPath, true
+
+	// Trailing slash on .zip path = browse root
+	if strings.HasSuffix(p, "/") {
+		clean := strings.TrimSuffix(p, "/")
+		if strings.HasSuffix(strings.ToLower(clean), ".zip") {
+			return clean, "", true
+		}
+	}
+
+	return "", "", false
+}
+
+// IsFile checks if the given path is a regular file (not a directory).
+// Use this after PathSplit to confirm the .zip path is actually a file
+// before entering ZIP mode. A directory named "reports.zip" must not
+// trigger archive browsing.
+func IsFile(filePath string) bool {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
 }
 
 // CachedArchive holds a parsed ZIP Central Directory with an LRU timeout.
@@ -80,6 +101,7 @@ func NewCache(maxAge time.Duration) *Cache {
 
 // Get returns a cached archive or opens a new one.
 // filePath must be the absolute path to the ZIP file on disk.
+// Caller should verify IsFile(filePath) before calling this.
 func (c *Cache) Get(filePath string) (*CachedArchive, error) {
 	c.mu.RLock()
 	if a, ok := c.entries[filePath]; ok {
