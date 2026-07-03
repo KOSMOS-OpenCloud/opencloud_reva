@@ -66,10 +66,17 @@ func (h *SpacesHandler) Handler(s *svc, trashbinHandler *TrashbinHandler) http.H
 		var segment string
 		segment, r.URL.Path = router.ShiftPath(r.URL.Path)
 
+		appctx.GetLogger(r.Context()).Info().
+			Str("origPath", origPath).
+			Str("segment", segment).
+			Str("tail", r.URL.Path).
+			Msg("zipfs-trace: spaces after ShiftPath")
+
 		// ShiftPath uses path.Clean which strips trailing slashes.
 		// Restore if the original path had one (needed for zipfs archive browsing).
 		if strings.HasSuffix(origPath, "/") && !strings.HasSuffix(r.URL.Path, "/") && r.URL.Path != "/" {
 			r.URL.Path = r.URL.Path + "/"
+			appctx.GetLogger(r.Context()).Info().Str("restored", r.URL.Path).Msg("zipfs-trace: spaces slash restored")
 		}
 		if segment == "" {
 			// listing is disabled, no auth will change that
