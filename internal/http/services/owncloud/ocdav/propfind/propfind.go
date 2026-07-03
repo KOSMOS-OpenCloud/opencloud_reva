@@ -302,6 +302,11 @@ func (p *Handler) HandlePathPropfind(w http.ResponseWriter, r *http.Request, ns 
 
 // HandleSpacesPropfind handles a spaces based propfind request
 func (p *Handler) HandleSpacesPropfind(w http.ResponseWriter, r *http.Request, spaceID string) {
+	// ZIP archive interceptor: if path points inside a .zip, serve archive listing
+	if p.tryZipPropfind(w, r, spaceID) {
+		return
+	}
+
 	ctx, span := appctx.GetTracerProvider(r.Context()).Tracer(tracerName).Start(r.Context(), "spaces_propfind")
 	defer span.End()
 
