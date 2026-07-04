@@ -993,7 +993,7 @@ func (fs *Decomposedfs) ListFolder(ctx context.Context, ref *provider.Reference,
 	}
 
 	// Archive browsing: if the node is an archive file, list its contents
-	if isArchiveNode(ctx, n) {
+	if n.IsArchive(ctx) {
 		return fs.listArchiveContents(ctx, n, "")
 	}
 
@@ -1298,6 +1298,15 @@ func (fs *Decomposedfs) Download(ctx context.Context, ref *provider.Reference, o
 	if !n.Exists {
 		err = errtypes.NotFound(filepath.Join(n.ParentID, n.Name))
 		return nil, nil, err
+	}
+
+	// Archive download: if WalkPath resolved into an archive, stream the inner file
+	if n.IsArchive(ctx) && n.ArchiveInnerPath != "" {
+		info, rc, err := fs.downloadArchiveEntry(ctx, n, n.ArchiveInnerPath)
+		if err != nil {
+			return nil, nil, err
+		}
+		return info, rc, nil
 	}
 
 	if n.IsProcessing(ctx) {

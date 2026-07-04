@@ -58,10 +58,9 @@ func PathSplit(p string) (zipPath, innerPath string, found bool) {
 	return "", "", false
 }
 
-// LooksLikeArchive checks if a path ends with a known archive extension.
-// Used as fallback when the router strips the trailing slash.
-func LooksLikeArchive(p string) bool {
-	lower := strings.ToLower(strings.TrimSuffix(p, "/"))
+// IsArchiveName checks if a filename has a known archive extension.
+func IsArchiveName(name string) bool {
+	lower := strings.ToLower(name)
 	return strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".7z")
 }
 

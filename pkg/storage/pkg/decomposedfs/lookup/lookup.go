@@ -258,6 +258,14 @@ func (lu *Lookup) WalkPath(ctx context.Context, r *node.Node, p string, followRe
 		}
 
 		if !r.Exists && i < len(segments)-1 {
+			// Check if the parent is an archive file — remaining segments
+			// are an inner path inside the archive, not real filesystem nodes.
+			parent, _ := r.Parent(ctx)
+			if parent != nil && parent.IsArchive(ctx) {
+				r = parent
+				r.ArchiveInnerPath = strings.Join(segments[i:], "/")
+				return r, nil
+			}
 			return r, errtypes.NotFound(segments[i])
 		}
 		if f != nil {

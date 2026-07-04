@@ -2,32 +2,12 @@ package decomposedfs
 
 import (
 	"context"
-	"strings"
 
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 
-	revamime "github.com/opencloud-eu/reva/v2/pkg/mime"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/fs/zipfs"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/node"
 )
-
-// archiveMimeTypes lists MIME types that can be browsed as virtual directories.
-var archiveMimeTypes = map[string]bool{
-	"application/zip":              true,
-	"application/x-zip-compressed": true,
-}
-
-// isArchiveNode checks if a node is a file with a browsable archive MIME type.
-func isArchiveNode(ctx context.Context, n *node.Node) bool {
-	if n == nil || !n.Exists {
-		return false
-	}
-	if n.Type(ctx) != provider.ResourceType_RESOURCE_TYPE_FILE {
-		return false
-	}
-	mime := revamime.Detect(false, n.Name)
-	return archiveMimeTypes[strings.ToLower(mime)]
-}
 
 // listArchiveContents lists the contents of an archive file as if it were a directory.
 func (fs *Decomposedfs) listArchiveContents(ctx context.Context, n *node.Node, innerPath string) ([]*provider.ResourceInfo, error) {
