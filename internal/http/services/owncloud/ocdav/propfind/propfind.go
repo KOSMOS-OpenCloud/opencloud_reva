@@ -420,6 +420,14 @@ func (p *Handler) HandleSpacesPropfind(w http.ResponseWriter, r *http.Request, s
 
 	res.Info.Path = r.URL.Path
 
+	// Archive browsing: treat archive files as containers for this request
+	// so PROPFIND Depth:1 triggers ListContainer on the archive.
+	if depth != net.DepthZero && res.Info.Type == provider.ResourceType_RESOURCE_TYPE_FILE {
+		if utils.ReadPlainFromOpaque(res.Info.GetOpaque(), "is-archive") == "true" {
+			res.Info.Type = provider.ResourceType_RESOURCE_TYPE_CONTAINER
+		}
+	}
+
 	resourceInfos := []*provider.ResourceInfo{
 		res.Info,
 	}
@@ -643,13 +651,10 @@ func (p *Handler) getResourceInfos(ctx context.Context, w http.ResponseWriter, r
 		rootInfo, // PROPFIND always includes the root resource
 	}
 
-	if depth == net.DepthZero {
+	if rootInfo.Type == provider.ResourceType_RESOURCE_TYPE_FILE || depth == net.DepthZero {
+		// If the resource is a file then it can't have any children so we can
+		// stop here.
 		return resourceInfos, true, true
-	}
-	if rootInfo.Type == provider.ResourceType_RESOURCE_TYPE_FILE {
-		// Files normally have no children — but archives (ZIP, 7z) can be
-		// listed by decomposedfs. Let ListContainer decide; if it returns
-		// nothing, the PROPFIND still works correctly (root only).
 	}
 
 	childInfos := map[string]*provider.ResourceInfo{}
