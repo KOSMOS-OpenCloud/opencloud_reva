@@ -22,7 +22,7 @@ func (p *Handler) tryZipPropfind(w http.ResponseWriter, r *http.Request, spaceID
 	ctx := r.Context()
 	log := appctx.GetLogger(ctx)
 
-	log.Info().Str("url_path", r.URL.Path).Str("spaceID", spaceID).Msg("zipfs: checking PROPFIND path")
+	log.Debug().Str("url_path", r.URL.Path).Str("spaceID", spaceID).Msg("zipfs: checking PROPFIND path")
 
 	// Two cases:
 	// 1. Path contains .zip/subpath → browse inside archive
@@ -42,7 +42,7 @@ func (p *Handler) tryZipPropfind(w http.ResponseWriter, r *http.Request, spaceID
 		return false
 	}
 
-	log.Warn().Str("zip_path", zipPath).Str("inner_path", innerPath).Msg("zipfs: PROPFIND intercepted")
+	log.Info().Str("zip_path", zipPath).Str("inner_path", innerPath).Msg("zipfs: PROPFIND intercepted")
 
 	// Stat the ZIP file itself
 	zipRef, err := spacelookup.MakeStorageSpaceReference(spaceID, zipPath)

@@ -176,11 +176,9 @@ func (s *svc) Handler() http.Handler {
 		// always starts with /
 		base := path.Join("/", s.Prefix())
 
-		log.Info().Str("method", r.Method).Str("raw_path", r.URL.Path).Msg("zipfs-trace: ocdav entry")
-
 		var head string
 		head, r.URL.Path = router.ShiftPath(r.URL.Path)
-		log.Info().Str("method", r.Method).Str("head", head).Str("tail", r.URL.Path).Msg("zipfs-trace: ocdav after ShiftPath")
+		log.Debug().Str("method", r.Method).Str("head", head).Str("tail", r.URL.Path).Msg("http routing")
 		switch head {
 		case "status.php", "status":
 			s.doStatus(w, r)

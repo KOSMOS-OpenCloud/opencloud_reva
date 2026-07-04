@@ -277,7 +277,7 @@ func Download(a *CachedArchive, innerPath string, spaceID string) (*provider.Res
 // --- helpers ---
 
 func makeRootInfo(a *CachedArchive, spaceID string) *provider.ResourceInfo {
-	ri := &provider.ResourceInfo{
+	return &provider.ResourceInfo{
 		Type: provider.ResourceType_RESOURCE_TYPE_CONTAINER,
 		Id:   makeID(spaceID, "/"),
 		Path: "/",
@@ -286,7 +286,6 @@ func makeRootInfo(a *CachedArchive, spaceID string) *provider.ResourceInfo {
 			Seconds: uint64(a.Modified.Unix()),
 		},
 	}
-	return ri
 }
 
 func makeDirInfo(spaceID, p string, modified time.Time) *provider.ResourceInfo {
