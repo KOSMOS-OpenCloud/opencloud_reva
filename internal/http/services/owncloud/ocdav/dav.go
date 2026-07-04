@@ -156,18 +156,8 @@ func (h *DavHandler) Handler(s *svc) http.Handler {
 			}
 		}
 
-		origDavPath := r.URL.Path
-		log.Info().Str("origDavPath", origDavPath).Msg("zipfs-trace: dav entry")
-
 		var head string
 		head, r.URL.Path = router.ShiftPath(r.URL.Path)
-		log.Info().Str("head", head).Str("tail", r.URL.Path).Msg("zipfs-trace: dav after ShiftPath")
-
-		// Restore trailing slash stripped by path.Clean in ShiftPath
-		if strings.HasSuffix(origDavPath, "/") && !strings.HasSuffix(r.URL.Path, "/") && r.URL.Path != "/" {
-			r.URL.Path = r.URL.Path + "/"
-			log.Info().Str("restored", r.URL.Path).Msg("zipfs-trace: dav slash restored")
-		}
 
 		switch head {
 		case "avatars":

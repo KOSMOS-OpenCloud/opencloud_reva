@@ -24,7 +24,20 @@ func (p *Handler) tryZipPropfind(w http.ResponseWriter, r *http.Request, spaceID
 
 	log.Info().Str("url_path", r.URL.Path).Str("spaceID", spaceID).Msg("zipfs: checking PROPFIND path")
 
+	// Two cases:
+	// 1. Path contains .zip/subpath → browse inside archive
+	// 2. Path ends with .zip + Depth > 0 → browse archive root
+	//    (trailing slash is stripped by path.Clean, so we can't rely on it)
 	zipPath, innerPath, found := zipfs.PathSplit(r.URL.Path)
+	if !found {
+		// Case 2: path ends with archive extension, Depth > 0 = listing intent
+		depth := r.Header.Get("Depth")
+		if depth != "0" && zipfs.LooksLikeArchive(r.URL.Path) {
+			zipPath = r.URL.Path
+			innerPath = ""
+			found = true
+		}
+	}
 	if !found {
 		return false
 	}
