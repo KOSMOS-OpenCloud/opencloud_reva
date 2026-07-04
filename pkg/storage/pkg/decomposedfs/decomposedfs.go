@@ -946,6 +946,14 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 		return
 	}
 
+	appctx.GetLogger(ctx).Info().
+		Str("name", node.Name).
+		Bool("exists", node.Exists).
+		Bool("isArchive", node.IsArchive(ctx)).
+		Str("archiveInnerPath", node.ArchiveInnerPath).
+		Str("refPath", ref.GetPath()).
+		Msg("archive: GetMD node info")
+
 	if !node.Exists {
 		err = errtypes.NotFound(filepath.Join(node.ParentID, node.Name))
 		return
