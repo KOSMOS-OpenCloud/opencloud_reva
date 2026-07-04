@@ -234,7 +234,9 @@ func (lu *Lookup) Path(ctx context.Context, n *node.Node, hasPermission node.Per
 func (lu *Lookup) WalkPath(ctx context.Context, r *node.Node, p string, followReferences bool, f func(ctx context.Context, n *node.Node) error) (*node.Node, error) {
 	segments := strings.Split(strings.Trim(p, "/"), "/")
 	var err error
+	var prev *node.Node // track previous node for archive parent detection
 	for i := range segments {
+		prev = r
 		if r, err = r.Child(ctx, segments[i]); err != nil {
 			return r, err
 		}
@@ -258,24 +260,13 @@ func (lu *Lookup) WalkPath(ctx context.Context, r *node.Node, p string, followRe
 		}
 
 		if !r.Exists {
-			// Check if the parent is an archive file — remaining segments
-			// are an inner path inside the archive, not real filesystem nodes.
-			parent, parentErr := r.Parent(ctx)
-			appctx.GetLogger(ctx).Info().
-				Err(parentErr).
-				Str("segment", segments[i]).
-				Int("i", i).
-				Bool("parentNil", parent == nil).
-				Bool("parentIsArchive", parent != nil && parent.IsArchive(ctx)).
-				Str("parentName", func() string { if parent != nil { return parent.Name }; return "" }()).
-				Msg("archive: WalkPath node not found")
-			if parent != nil && parent.IsArchive(ctx) {
-				r = parent
+			// Check if the previous node (parent in the walk) is an archive file —
+			// remaining segments are an inner path inside the archive.
+			// We use prev instead of r.Parent(ctx) because Parent() reads xattrs
+			// from disk and may fail to reconstruct the node name.
+			if prev != nil && prev.IsArchive(ctx) {
+				r = prev
 				r.ArchiveInnerPath = strings.Join(segments[i:], "/")
-				appctx.GetLogger(ctx).Info().
-					Str("archiveInnerPath", r.ArchiveInnerPath).
-					Str("archiveName", r.Name).
-					Msg("archive: resolved to archive node")
 				return r, nil
 			}
 			if i < len(segments)-1 {
