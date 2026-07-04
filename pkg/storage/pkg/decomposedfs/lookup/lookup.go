@@ -259,6 +259,18 @@ func (lu *Lookup) WalkPath(ctx context.Context, r *node.Node, p string, followRe
 			r.SpaceRoot = r
 		}
 
+		appctx.GetLogger(ctx).Info().
+			Str("segment", segments[i]).
+			Int("i", i).
+			Bool("rExists", r.Exists).
+			Str("rName", r.Name).
+			Bool("prevNil", prev == nil).
+			Str("prevName", func() string { if prev != nil { return prev.Name }; return "" }()).
+			Bool("prevIsArchive", prev != nil && prev.IsArchive(ctx)).
+			Bool("prevExists", prev != nil && prev.Exists).
+			Bool("prevIsDir", prev != nil && prev.IsDir(ctx)).
+			Msg("archive: WalkPath step")
+
 		if !r.Exists {
 			// Check if the previous node (parent in the walk) is an archive file —
 			// remaining segments are an inner path inside the archive.
