@@ -1,10 +1,8 @@
-// Package zipfs provides a transparent ZIP archive browsing layer.
+// Package zipfs provides read-only browsing of ZIP archive contents.
 //
-// The interceptor detects paths like /folder/archive.zip/subdir/file.txt
-// and transparently serves the content from the ZIP's Central Directory.
-// It works with any underlying storage (posixfs, decomposedfs) by
-// splitting the path at the .zip boundary and accessing the ZIP file
-// through the parent FS.
+// It reads the ZIP Central Directory (last ~64KB) for listings and
+// streams individual files via offset-based access — no full extraction.
+// Used by decomposedfs to treat archive files as virtual directories.
 package zipfs
 
 import (
