@@ -9,9 +9,11 @@ package zipfs
 
 import (
 	"archive/zip"
+	"bytes"
 	"crypto/md5"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"strings"
@@ -21,7 +23,9 @@ import (
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	typespb "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
 
+	"github.com/opencloud-eu/reva/v2/internal/http/services/datagateway"
 	"github.com/opencloud-eu/reva/v2/pkg/errtypes"
+	"github.com/opencloud-eu/reva/v2/pkg/rhttp"
 )
 
 // PathSplit finds potential .zip/ boundaries in a path.
@@ -82,10 +86,11 @@ func IsFile(filePath string) bool {
 // CachedArchive holds a parsed ZIP Central Directory with an LRU timeout.
 type CachedArchive struct {
 	Reader   *zip.Reader
-	file     *os.File // keep open for seeking
+	file     *os.File // keep open for seeking (disk-based)
 	Size     int64
 	Modified time.Time
 	LastUsed time.Time
+	etag     string // for URL-based cache invalidation
 }
 
 // Cache is a thread-safe LRU cache for opened ZIP archives.
@@ -172,6 +177,76 @@ func (c *Cache) Evict(filePath string) {
 		a.file.Close()
 		delete(c.entries, filePath)
 	}
+}
+
+// GetFromURL downloads a ZIP file via HTTP and caches the parsed archive.
+// Used when direct disk access is not available (e.g. ocdav layer).
+func (c *Cache) GetFromURL(downloadURL, token string, info *provider.ResourceInfo) (*CachedArchive, error) {
+	// Use resource ID as cache key
+	key := fmt.Sprintf("url:%s:%s", info.GetId().GetSpaceId(), info.GetId().GetOpaqueId())
+	etag := info.GetEtag()
+
+	c.mu.RLock()
+	if a, ok := c.entries[key]; ok {
+		if a.etag == etag {
+			a.LastUsed = time.Now()
+			c.mu.RUnlock()
+			return a, nil
+		}
+		c.mu.RUnlock()
+		c.Evict(key)
+	} else {
+		c.mu.RUnlock()
+	}
+
+	// Download the ZIP file
+	httpReq, err := rhttp.NewRequest(nil, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set(datagateway.TokenTransportHeader, token)
+
+	httpResp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("download zip: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download zip: status %d", httpResp.StatusCode)
+	}
+
+	data, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read zip: %w", err)
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("parse zip: %w", err)
+	}
+
+	a := &CachedArchive{
+		Reader:   zr,
+		Size:     int64(len(data)),
+		Modified: time.Now(),
+		LastUsed: time.Now(),
+		etag:     etag,
+	}
+
+	c.mu.Lock()
+	for k, v := range c.entries {
+		if time.Since(v.LastUsed) > c.maxAge {
+			if v.file != nil {
+				v.file.Close()
+			}
+			delete(c.entries, k)
+		}
+	}
+	c.entries[key] = a
+	c.mu.Unlock()
+
+	return a, nil
 }
 
 // Close closes all cached archives.

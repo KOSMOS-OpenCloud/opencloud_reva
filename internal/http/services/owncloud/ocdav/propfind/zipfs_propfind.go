@@ -65,23 +65,32 @@ func (p *Handler) tryZipPropfind(w http.ResponseWriter, r *http.Request, spaceID
 		return false
 	}
 
-	// Resolve disk path — we need the actual file to open it
-	pathRes, err := client.GetPath(ctx, &provider.GetPathRequest{
-		ResourceId: sRes.GetInfo().GetId(),
-	})
-	if err != nil || pathRes.GetStatus().GetCode() != rpc.Code_CODE_OK {
-		log.Debug().Msg("zipfs: cannot resolve disk path for PROPFIND")
+	// Download the ZIP file via the gateway to read its Central Directory.
+	// We use InitiateFileDownload → HTTP GET to fetch the bytes,
+	// then parse with zip.NewReader.
+	dRes, err := client.InitiateFileDownload(ctx, &provider.InitiateFileDownloadRequest{Ref: &zipRef})
+	if err != nil || dRes.GetStatus().GetCode() != rpc.Code_CODE_OK {
+		log.Debug().Msg("zipfs: cannot initiate download for ZIP")
 		return false
 	}
 
-	diskPath := pathRes.GetPath()
-	if !zipfs.IsFile(diskPath) {
+	// Find the download endpoint
+	var downloadURL, downloadToken string
+	for _, proto := range dRes.GetProtocols() {
+		if proto.GetProtocol() == "spaces" || proto.GetProtocol() == "simple" {
+			downloadURL = proto.GetDownloadEndpoint()
+			downloadToken = proto.GetToken()
+			break
+		}
+	}
+	if downloadURL == "" {
+		log.Debug().Msg("zipfs: no download endpoint found")
 		return false
 	}
 
-	archive, err := zipfs.GlobalCache().Get(diskPath)
+	archive, err := zipfs.GlobalCache().GetFromURL(downloadURL, downloadToken, sRes.GetInfo())
 	if err != nil {
-		log.Warn().Err(err).Str("zip", diskPath).Msg("zipfs: failed to open archive")
+		log.Warn().Err(err).Str("url", downloadURL).Msg("zipfs: failed to open archive from URL")
 		return false
 	}
 
