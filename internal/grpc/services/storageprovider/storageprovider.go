@@ -827,11 +827,6 @@ func (s *Service) Stat(ctx context.Context, req *provider.StatRequest) (*provide
 		Value: attribute.StringValue(req.GetRef().String()),
 	})
 
-	// ZIP archive interceptor: if path points inside a .zip file, serve from archive
-	if resp, handled := s.tryZipStat(ctx, req.GetRef()); handled {
-		return resp, nil
-	}
-
 	md, err := s.Storage.GetMD(ctx, req.GetRef(), req.GetArbitraryMetadataKeys(), req.GetFieldMask().GetPaths())
 	if err != nil {
 		return &provider.StatResponse{
@@ -842,13 +837,6 @@ func (s *Service) Stat(ctx context.Context, req *provider.StatRequest) (*provide
 	s.addMissingStorageProviderID(md.GetId(), nil)
 	s.addMissingStorageProviderID(md.GetParentId(), nil)
 	s.addMissingStorageProviderID(md.GetSpace().GetRoot(), nil)
-
-	// Expose internal path for zipfs archive browsing
-	if ip, ok := s.Storage.(InternalPather); ok {
-		if diskPath, err := ip.InternalPath(ctx, req.GetRef()); err == nil {
-			md.Opaque = utils.AppendPlainToOpaque(md.Opaque, "internal-path", diskPath)
-		}
-	}
 
 	return &provider.StatResponse{
 		Status: status.NewOK(ctx),
@@ -904,11 +892,6 @@ func (s *Service) ListContainerStream(req *provider.ListContainerStreamRequest, 
 }
 
 func (s *Service) ListContainer(ctx context.Context, req *provider.ListContainerRequest) (*provider.ListContainerResponse, error) {
-	// ZIP archive interceptor
-	if resp, handled := s.tryZipListContainer(ctx, req.GetRef()); handled {
-		return resp, nil
-	}
-
 	mds, err := s.Storage.ListFolder(ctx, req.GetRef(), req.GetArbitraryMetadataKeys(), req.GetFieldMask().GetPaths())
 	res := &provider.ListContainerResponse{
 		Status: status.NewStatusFromErrType(ctx, "list container", err),

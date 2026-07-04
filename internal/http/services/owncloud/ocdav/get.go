@@ -175,11 +175,6 @@ func copyHeader(dist, src http.Header, header string) {
 }
 
 func (s *svc) handleSpacesGet(w http.ResponseWriter, r *http.Request, spaceID string) {
-	// ZIP archive interceptor: serve files from inside ZIP archives
-	if s.tryZipGet(w, r, spaceID) {
-		return
-	}
-
 	ctx, span := appctx.GetTracerProvider(r.Context()).Tracer(tracerName).Start(r.Context(), "spaces_get")
 	defer span.End()
 

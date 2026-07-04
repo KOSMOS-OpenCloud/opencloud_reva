@@ -992,6 +992,11 @@ func (fs *Decomposedfs) ListFolder(ctx context.Context, ref *provider.Reference,
 		return nil, errtypes.NotFound(filepath.Join(n.ParentID, n.Name))
 	}
 
+	// Archive browsing: if the node is an archive file, list its contents
+	if isArchiveNode(ctx, n) {
+		return fs.listArchiveContents(ctx, n, "")
+	}
+
 	rp, err := fs.p.AssemblePermissions(ctx, n)
 	switch {
 	case err != nil:
