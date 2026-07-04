@@ -643,10 +643,13 @@ func (p *Handler) getResourceInfos(ctx context.Context, w http.ResponseWriter, r
 		rootInfo, // PROPFIND always includes the root resource
 	}
 
-	if rootInfo.Type == provider.ResourceType_RESOURCE_TYPE_FILE || depth == net.DepthZero {
-		// If the resource is a file then it can't have any children so we can
-		// stop here.
+	if depth == net.DepthZero {
 		return resourceInfos, true, true
+	}
+	if rootInfo.Type == provider.ResourceType_RESOURCE_TYPE_FILE {
+		// Files normally have no children — but archives (ZIP, 7z) can be
+		// listed by decomposedfs. Let ListContainer decide; if it returns
+		// nothing, the PROPFIND still works correctly (root only).
 	}
 
 	childInfos := map[string]*provider.ResourceInfo{}
