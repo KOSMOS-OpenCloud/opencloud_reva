@@ -261,9 +261,20 @@ func (lu *Lookup) WalkPath(ctx context.Context, r *node.Node, p string, followRe
 			// Check if the parent is an archive file — remaining segments
 			// are an inner path inside the archive, not real filesystem nodes.
 			parent, _ := r.Parent(ctx)
+			appctx.GetLogger(ctx).Info().
+				Str("segment", segments[i]).
+				Int("i", i).
+				Bool("parentNil", parent == nil).
+				Bool("parentIsArchive", parent != nil && parent.IsArchive(ctx)).
+				Str("parentName", func() string { if parent != nil { return parent.Name }; return "" }()).
+				Msg("archive: WalkPath node not found")
 			if parent != nil && parent.IsArchive(ctx) {
 				r = parent
 				r.ArchiveInnerPath = strings.Join(segments[i:], "/")
+				appctx.GetLogger(ctx).Info().
+					Str("archiveInnerPath", r.ArchiveInnerPath).
+					Str("archiveName", r.Name).
+					Msg("archive: resolved to archive node")
 				return r, nil
 			}
 			if i < len(segments)-1 {
