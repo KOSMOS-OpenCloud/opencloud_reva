@@ -6,6 +6,7 @@ import (
 
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 
+	revamime "github.com/opencloud-eu/reva/v2/pkg/mime"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/fs/zipfs"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/node"
 )
@@ -18,10 +19,13 @@ var archiveMimeTypes = map[string]bool{
 
 // isArchiveNode checks if a node is a file with a browsable archive MIME type.
 func isArchiveNode(ctx context.Context, n *node.Node) bool {
-	if n == nil || !n.Exists || n.IsDir(ctx) {
+	if n == nil || !n.Exists {
 		return false
 	}
-	mime := n.MimeType(ctx)
+	if n.Type(ctx) != provider.ResourceType_RESOURCE_TYPE_FILE {
+		return false
+	}
+	mime := revamime.Detect(false, n.Name)
 	return archiveMimeTypes[strings.ToLower(mime)]
 }
 
