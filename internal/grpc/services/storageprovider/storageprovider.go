@@ -843,6 +843,13 @@ func (s *Service) Stat(ctx context.Context, req *provider.StatRequest) (*provide
 	s.addMissingStorageProviderID(md.GetParentId(), nil)
 	s.addMissingStorageProviderID(md.GetSpace().GetRoot(), nil)
 
+	// Expose internal path for zipfs archive browsing
+	if ip, ok := s.Storage.(InternalPather); ok {
+		if diskPath, err := ip.InternalPath(ctx, req.GetRef()); err == nil {
+			md.Opaque = utils.AppendPlainToOpaque(md.Opaque, "internal-path", diskPath)
+		}
+	}
+
 	return &provider.StatResponse{
 		Status: status.NewOK(ctx),
 		Info:   md,

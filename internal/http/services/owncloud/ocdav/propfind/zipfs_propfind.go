@@ -65,17 +65,16 @@ func (p *Handler) tryZipPropfind(w http.ResponseWriter, r *http.Request, spaceID
 		return false
 	}
 
-	// Resolve disk path — we need the actual file to open it
-	pathRes, err := client.GetPath(ctx, &provider.GetPathRequest{
-		ResourceId: sRes.GetInfo().GetId(),
-	})
-	if err != nil || pathRes.GetStatus().GetCode() != rpc.Code_CODE_OK {
-		log.Debug().Msg("zipfs: cannot resolve disk path for PROPFIND")
-		return false
+	// Get the on-disk path from the Stat response opaque
+	// (set by storageprovider for storage drivers that support InternalPath)
+	diskPath := ""
+	if sRes.GetInfo().GetOpaque() != nil {
+		if entry, ok := sRes.GetInfo().GetOpaque().GetMap()["internal-path"]; ok {
+			diskPath = string(entry.GetValue())
+		}
 	}
-
-	diskPath := pathRes.GetPath()
-	if !zipfs.IsFile(diskPath) {
+	if diskPath == "" || !zipfs.IsFile(diskPath) {
+		log.Debug().Str("diskPath", diskPath).Msg("zipfs: no valid disk path for archive")
 		return false
 	}
 
