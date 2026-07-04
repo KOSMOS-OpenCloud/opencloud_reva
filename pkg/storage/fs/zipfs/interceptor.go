@@ -10,6 +10,7 @@ package zipfs
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/md5"
 	"fmt"
 	"io"
@@ -200,7 +201,7 @@ func (c *Cache) GetFromURL(downloadURL, token string, info *provider.ResourceInf
 	}
 
 	// Download the ZIP file
-	httpReq, err := rhttp.NewRequest(nil, http.MethodGet, downloadURL, nil)
+	httpReq, err := rhttp.NewRequest(context.Background(), http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
