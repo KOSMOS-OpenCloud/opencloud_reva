@@ -420,12 +420,10 @@ func (p *Handler) HandleSpacesPropfind(w http.ResponseWriter, r *http.Request, s
 
 	res.Info.Path = r.URL.Path
 
-	// Archive browsing: treat archive files as containers for this request
-	// so PROPFIND Depth:1 triggers ListContainer on the archive.
+	// Depth > 0 on a file: try listing it as a container (archives).
+	// decomposedfs.ListFolder returns children for archives, empty for normal files.
 	if depth != net.DepthZero && res.Info.Type == provider.ResourceType_RESOURCE_TYPE_FILE {
-		if utils.ReadPlainFromOpaque(res.Info.GetOpaque(), "is-archive") == "true" {
-			res.Info.Type = provider.ResourceType_RESOURCE_TYPE_CONTAINER
-		}
+		res.Info.Type = provider.ResourceType_RESOURCE_TYPE_CONTAINER
 	}
 
 	resourceInfos := []*provider.ResourceInfo{

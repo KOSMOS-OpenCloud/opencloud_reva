@@ -963,10 +963,6 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 		return nil, err
 	}
 
-	if isArchiveNode(ctx, node) {
-		md.Opaque = utils.AppendPlainToOpaque(md.Opaque, "is-archive", "true")
-	}
-
 	addSpace := len(fieldMask) == 0
 	for _, p := range fieldMask {
 		if p == "space" || p == "*" {
