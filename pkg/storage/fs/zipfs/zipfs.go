@@ -216,11 +216,11 @@ func ListFolder(a *CachedArchive, innerPath string, spaceID string) ([]*provider
 		}
 		seen[childName] = true
 
+		fullPath := prefix + childName // full inner path for consistent IDs
 		if len(parts) > 1 || strings.HasSuffix(name, "/") {
-			// Path must be relative (just the child name) — the caller joins with the request path
-			result = append(result, makeDirInfo(spaceID, childName, f.Modified))
+			result = append(result, makeDirInfoWithID(spaceID, fullPath, childName, f.Modified))
 		} else {
-			result = append(result, makeFileInfoRelative(spaceID, childName, f))
+			result = append(result, makeFileInfoRelative(spaceID, fullPath, childName, f))
 		}
 	}
 
@@ -286,12 +286,26 @@ func makeRootInfo(a *CachedArchive, spaceID string) *provider.ResourceInfo {
 	}
 }
 
-func makeDirInfo(spaceID, childName string, modified time.Time) *provider.ResourceInfo {
+// makeDirInfo creates a directory ResourceInfo. Used by Stat where fullPath = clean innerPath.
+func makeDirInfo(spaceID, fullPath string, modified time.Time) *provider.ResourceInfo {
 	return &provider.ResourceInfo{
 		Type: provider.ResourceType_RESOURCE_TYPE_CONTAINER,
-		Id:   makeID(spaceID, childName),
-		Path: childName,
-		Name: path.Base(childName),
+		Id:   makeID(spaceID, fullPath),
+		Path: path.Base(fullPath),
+		Name: path.Base(fullPath),
+		Mtime: &typespb.Timestamp{
+			Seconds: uint64(modified.Unix()),
+		},
+	}
+}
+
+// makeDirInfoWithID creates a directory ResourceInfo with explicit ID path and display name.
+func makeDirInfoWithID(spaceID, idPath, displayName string, modified time.Time) *provider.ResourceInfo {
+	return &provider.ResourceInfo{
+		Type: provider.ResourceType_RESOURCE_TYPE_CONTAINER,
+		Id:   makeID(spaceID, idPath),
+		Path: displayName,
+		Name: displayName,
 		Mtime: &typespb.Timestamp{
 			Seconds: uint64(modified.Unix()),
 		},
@@ -310,12 +324,12 @@ func makeFileInfo(spaceID string, f *zip.File) *provider.ResourceInfo {
 	}
 }
 
-func makeFileInfoRelative(spaceID string, childName string, f *zip.File) *provider.ResourceInfo {
+func makeFileInfoRelative(spaceID, idPath, displayName string, f *zip.File) *provider.ResourceInfo {
 	return &provider.ResourceInfo{
 		Type:     provider.ResourceType_RESOURCE_TYPE_FILE,
-		Id:       makeID(spaceID, f.Name),
-		Path:     childName,
-		Name:     childName,
+		Id:       makeID(spaceID, idPath),
+		Path:     displayName,
+		Name:     displayName,
 		Size:     f.UncompressedSize64,
 		Mtime:    &typespb.Timestamp{Seconds: uint64(f.Modified.Unix())},
 		Checksum: &provider.ResourceChecksum{Type: provider.ResourceChecksumType_RESOURCE_CHECKSUM_TYPE_UNSET, Sum: fmt.Sprintf("%08x", f.CRC32)},
