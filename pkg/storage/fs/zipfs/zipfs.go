@@ -199,6 +199,9 @@ func ListFolder(a *CachedArchive, innerPath string, spaceID string, archiveNodeI
 		prefix = strings.TrimSuffix(innerPath, "/") + "/"
 	}
 
+	// Parent ID: the folder being listed
+	parentID := makeID(spaceID, archiveNodeID, innerPath)
+
 	seen := make(map[string]bool)
 	var result []*provider.ResourceInfo
 
@@ -221,9 +224,9 @@ func ListFolder(a *CachedArchive, innerPath string, spaceID string, archiveNodeI
 
 		fullPath := prefix + childName // full inner path for consistent IDs
 		if len(parts) > 1 || strings.HasSuffix(name, "/") {
-			result = append(result, makeDirInfoWithID(spaceID, archiveNodeID, fullPath, childName, f.Modified))
+			result = append(result, makeDirInfoWithID(spaceID, archiveNodeID, fullPath, childName, parentID, f.Modified))
 		} else {
-			result = append(result, makeFileInfoRelative(spaceID, archiveNodeID, fullPath, childName, f))
+			result = append(result, makeFileInfoRelative(spaceID, archiveNodeID, fullPath, childName, parentID, f))
 		}
 	}
 
@@ -237,12 +240,19 @@ func Stat(a *CachedArchive, innerPath string, spaceID string, archiveNodeID stri
 	}
 
 	clean := strings.TrimSuffix(innerPath, "/")
+	parentInnerPath := path.Dir(clean)
+	if parentInnerPath == "." {
+		parentInnerPath = ""
+	}
+	parentID := makeID(spaceID, archiveNodeID, parentInnerPath)
 
 	// Try as file first
 	for _, f := range a.Reader.File {
 		n := strings.TrimSuffix(f.Name, "/")
 		if n == clean && !strings.HasSuffix(f.Name, "/") {
-			return makeFileInfo(spaceID, archiveNodeID, f), nil
+			info := makeFileInfo(spaceID, archiveNodeID, f)
+			info.ParentId = parentID
+			return info, nil
 		}
 	}
 
@@ -250,7 +260,9 @@ func Stat(a *CachedArchive, innerPath string, spaceID string, archiveNodeID stri
 	dirPrefix := clean + "/"
 	for _, f := range a.Reader.File {
 		if strings.HasPrefix(f.Name, dirPrefix) {
-			return makeDirInfo(spaceID, archiveNodeID, clean, f.Modified), nil
+			info := makeDirInfo(spaceID, archiveNodeID, clean, f.Modified)
+			info.ParentId = parentID
+			return info, nil
 		}
 	}
 
@@ -302,13 +314,14 @@ func makeDirInfo(spaceID, archiveNodeID, fullPath string, modified time.Time) *p
 	}
 }
 
-func makeDirInfoWithID(spaceID, archiveNodeID, idPath, displayName string, modified time.Time) *provider.ResourceInfo {
+func makeDirInfoWithID(spaceID, archiveNodeID, idPath, displayName string, parentID *provider.ResourceId, modified time.Time) *provider.ResourceInfo {
 	return &provider.ResourceInfo{
-		Type: provider.ResourceType_RESOURCE_TYPE_CONTAINER,
-		Id:   makeID(spaceID, archiveNodeID, idPath),
-		Path: displayName,
-		Name: displayName,
-		Etag: makeEtag(idPath, modified),
+		Type:     provider.ResourceType_RESOURCE_TYPE_CONTAINER,
+		Id:       makeID(spaceID, archiveNodeID, idPath),
+		ParentId: parentID,
+		Path:     displayName,
+		Name:     displayName,
+		Etag:     makeEtag(idPath, modified),
 		Mtime: &typespb.Timestamp{
 			Seconds: uint64(modified.Unix()),
 		},
@@ -329,10 +342,11 @@ func makeFileInfo(spaceID, archiveNodeID string, f *zip.File) *provider.Resource
 	}
 }
 
-func makeFileInfoRelative(spaceID, archiveNodeID, idPath, displayName string, f *zip.File) *provider.ResourceInfo {
+func makeFileInfoRelative(spaceID, archiveNodeID, idPath, displayName string, parentID *provider.ResourceId, f *zip.File) *provider.ResourceInfo {
 	return &provider.ResourceInfo{
 		Type:     provider.ResourceType_RESOURCE_TYPE_FILE,
 		Id:       makeID(spaceID, archiveNodeID, idPath),
+		ParentId: parentID,
 		Path:     displayName,
 		Name:     displayName,
 		Size:     f.UncompressedSize64,
