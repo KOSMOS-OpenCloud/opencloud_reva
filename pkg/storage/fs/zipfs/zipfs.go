@@ -10,6 +10,7 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path"
 	"strings"
@@ -293,6 +294,7 @@ func makeDirInfo(spaceID, fullPath string, modified time.Time) *provider.Resourc
 		Id:   makeID(spaceID, fullPath),
 		Path: path.Base(fullPath),
 		Name: path.Base(fullPath),
+		Etag: makeEtag(fullPath, modified),
 		Mtime: &typespb.Timestamp{
 			Seconds: uint64(modified.Unix()),
 		},
@@ -306,6 +308,7 @@ func makeDirInfoWithID(spaceID, idPath, displayName string, modified time.Time) 
 		Id:   makeID(spaceID, idPath),
 		Path: displayName,
 		Name: displayName,
+		Etag: makeEtag(idPath, modified),
 		Mtime: &typespb.Timestamp{
 			Seconds: uint64(modified.Unix()),
 		},
@@ -319,6 +322,8 @@ func makeFileInfo(spaceID string, f *zip.File) *provider.ResourceInfo {
 		Path:     "/" + f.Name,
 		Name:     path.Base(f.Name),
 		Size:     f.UncompressedSize64,
+		MimeType: detectMimeType(f.Name),
+		Etag:     makeEtag(f.Name, f.Modified),
 		Mtime:    &typespb.Timestamp{Seconds: uint64(f.Modified.Unix())},
 		Checksum: &provider.ResourceChecksum{Type: provider.ResourceChecksumType_RESOURCE_CHECKSUM_TYPE_UNSET, Sum: fmt.Sprintf("%08x", f.CRC32)},
 	}
@@ -331,9 +336,28 @@ func makeFileInfoRelative(spaceID, idPath, displayName string, f *zip.File) *pro
 		Path:     displayName,
 		Name:     displayName,
 		Size:     f.UncompressedSize64,
+		MimeType: detectMimeType(f.Name),
+		Etag:     makeEtag(f.Name, f.Modified),
 		Mtime:    &typespb.Timestamp{Seconds: uint64(f.Modified.Unix())},
 		Checksum: &provider.ResourceChecksum{Type: provider.ResourceChecksumType_RESOURCE_CHECKSUM_TYPE_UNSET, Sum: fmt.Sprintf("%08x", f.CRC32)},
 	}
+}
+
+func detectMimeType(name string) string {
+	ext := path.Ext(name)
+	if ext == "" {
+		return "application/octet-stream"
+	}
+	mt := mime.TypeByExtension(ext)
+	if mt == "" {
+		return "application/octet-stream"
+	}
+	return mt
+}
+
+func makeEtag(name string, modified time.Time) string {
+	h := md5.Sum([]byte(fmt.Sprintf("%s:%d", name, modified.UnixNano())))
+	return fmt.Sprintf(`"%x"`, h[:8])
 }
 
 func makeID(spaceID, p string) *provider.ResourceId {
