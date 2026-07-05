@@ -908,6 +908,11 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 		return
 	}
 
+	// Archive browsing: return metadata for the inner path
+	if node.IsArchive(ctx) && node.ArchiveInnerPath != "" {
+		return fs.statArchiveEntry(ctx, node, node.ArchiveInnerPath)
+	}
+
 	rp, err := fs.p.AssemblePermissions(ctx, node)
 	switch {
 	case err != nil:
@@ -949,6 +954,11 @@ func (fs *Decomposedfs) ListFolder(ctx context.Context, ref *provider.Reference,
 
 	if !n.Exists {
 		return nil, errtypes.NotFound(filepath.Join(n.ParentID, n.Name))
+	}
+
+	// Archive browsing: if the node is an archive file, list its contents
+	if n.IsArchive(ctx) {
+		return fs.listArchiveContents(ctx, n, n.ArchiveInnerPath)
 	}
 
 	rp, err := fs.p.AssemblePermissions(ctx, n)
@@ -1084,6 +1094,11 @@ func (fs *Decomposedfs) Download(ctx context.Context, ref *provider.Reference, o
 	if !n.Exists {
 		err = errtypes.NotFound(filepath.Join(n.ParentID, n.Name))
 		return nil, nil, err
+	}
+
+	// Archive download: if WalkPath resolved into an archive, stream the inner file
+	if n.IsArchive(ctx) && n.ArchiveInnerPath != "" {
+		return fs.downloadArchiveEntry(ctx, n, n.ArchiveInnerPath)
 	}
 
 	rp, err := fs.p.AssemblePermissions(ctx, n)

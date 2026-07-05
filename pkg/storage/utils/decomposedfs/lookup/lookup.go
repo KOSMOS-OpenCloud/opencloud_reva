@@ -264,7 +264,9 @@ func (lu *Lookup) Path(ctx context.Context, n *node.Node, hasPermission node.Per
 func (lu *Lookup) WalkPath(ctx context.Context, r *node.Node, p string, followReferences bool, f func(ctx context.Context, n *node.Node) error) (*node.Node, error) {
 	segments := strings.Split(strings.Trim(p, "/"), "/")
 	var err error
+	var prev *node.Node // track previous node for archive parent detection
 	for i := range segments {
+		prev = r
 		if r, err = r.Child(ctx, segments[i]); err != nil {
 			return r, err
 		}
@@ -287,8 +289,17 @@ func (lu *Lookup) WalkPath(ctx context.Context, r *node.Node, p string, followRe
 			r.SpaceRoot = r
 		}
 
-		if !r.Exists && i < len(segments)-1 {
-			return r, errtypes.NotFound(segments[i])
+		if !r.Exists {
+			// Check if the previous node (parent in the walk) is an archive file —
+			// remaining segments are an inner path inside the archive.
+			if prev != nil && prev.IsArchive(ctx) {
+				r = prev
+				r.ArchiveInnerPath = strings.Join(segments[i:], "/")
+				return r, nil
+			}
+			if i < len(segments)-1 {
+				return r, errtypes.NotFound(segments[i])
+			}
 		}
 		if f != nil {
 			if err = f(ctx, r); err != nil {
