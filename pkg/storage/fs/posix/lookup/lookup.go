@@ -32,6 +32,7 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/opencloud-eu/reva/v2/pkg/appctx"
 	"github.com/opencloud-eu/reva/v2/pkg/errtypes"
+	"github.com/opencloud-eu/reva/v2/pkg/storage/fs/zipfs"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/fs/posix/idcache"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/fs/posix/options"
 	dfslookup "github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/lookup"
@@ -210,6 +211,15 @@ func (lu *Lookup) NodeFromID(ctx context.Context, id *provider.ResourceId) (n *n
 	if id.OpaqueId == "" {
 		// The Resource references the root of a space
 		return lu.NodeFromSpaceID(ctx, id.SpaceId)
+	}
+	// Check for ZIP archive virtual IDs: <archiveNodeID>!arc/<innerPath>
+	if archiveNodeID, innerPath, ok := zipfs.ParseArchiveID(id.OpaqueId); ok {
+		n, err = node.ReadNode(ctx, lu, id.SpaceId, archiveNodeID, "", lu.listDisabledSpaces, nil, false)
+		if err != nil {
+			return nil, err
+		}
+		n.ArchiveInnerPath = innerPath
+		return n, nil
 	}
 	return node.ReadNode(ctx, lu, id.SpaceId, id.OpaqueId, "", lu.listDisabledSpaces, nil, false)
 }

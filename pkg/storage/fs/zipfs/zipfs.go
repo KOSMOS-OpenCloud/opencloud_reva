@@ -360,7 +360,7 @@ func makeEtag(name string, modified time.Time) string {
 }
 
 func makeID(spaceID, archiveNodeID, innerPath string) *provider.ResourceId {
-	opaque := archiveNodeID + "!zip"
+	opaque := archiveNodeID + "!arc"
 	if innerPath != "" {
 		opaque += "/" + innerPath
 	}
@@ -371,15 +371,15 @@ func makeID(spaceID, archiveNodeID, innerPath string) *provider.ResourceId {
 	}
 }
 
-// ParseZipID checks if an OpaqueId is a ZIP archive reference and returns
+// ParseArchiveID checks if an OpaqueId is a ZIP archive reference and returns
 // the archive node ID and inner path. Returns ("", "", false) if not a ZIP ID.
-func ParseZipID(opaqueID string) (archiveNodeID, innerPath string, ok bool) {
-	idx := strings.Index(opaqueID, "!zip")
+func ParseArchiveID(opaqueID string) (archiveNodeID, innerPath string, ok bool) {
+	idx := strings.Index(opaqueID, "!arc")
 	if idx < 0 {
 		return "", "", false
 	}
 	archiveNodeID = opaqueID[:idx]
-	rest := opaqueID[idx+4:] // skip "!zip"
+	rest := opaqueID[idx+4:] // skip "!arc"
 	if rest == "" {
 		return archiveNodeID, "", true
 	}

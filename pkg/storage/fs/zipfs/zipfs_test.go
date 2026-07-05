@@ -271,25 +271,25 @@ func TestIDConsistency(t *testing.T) {
 	}
 }
 
-func TestParseZipID(t *testing.T) {
+func TestParseArchiveID(t *testing.T) {
 	tests := []struct {
 		input         string
 		archiveNodeID string
 		innerPath     string
 		ok            bool
 	}{
-		{"abc123!zip/miau2/wauwau2", "abc123", "miau2/wauwau2", true},
-		{"abc123!zip", "abc123", "", true},
-		{"abc123!zip/file.txt", "abc123", "file.txt", true},
-		{"abc123", "", "", false},              // no !zip
+		{"abc123!arc/miau2/wauwau2", "abc123", "miau2/wauwau2", true},
+		{"abc123!arc", "abc123", "", true},
+		{"abc123!arc/file.txt", "abc123", "file.txt", true},
+		{"abc123", "", "", false},              // no !arc
 		{"abc123!other", "", "", false},         // wrong marker
-		{"abc123!zippy", "", "", false},         // !zippy != !zip
+		{"abc123!arcpy", "", "", false},         // !arcpy != !arc
 	}
 
 	for _, tt := range tests {
-		nodeID, innerPath, ok := ParseZipID(tt.input)
+		nodeID, innerPath, ok := ParseArchiveID(tt.input)
 		if ok != tt.ok || nodeID != tt.archiveNodeID || innerPath != tt.innerPath {
-			t.Errorf("ParseZipID(%q) = (%q, %q, %v), want (%q, %q, %v)",
+			t.Errorf("ParseArchiveID(%q) = (%q, %q, %v), want (%q, %q, %v)",
 				tt.input, nodeID, innerPath, ok, tt.archiveNodeID, tt.innerPath, tt.ok)
 		}
 	}
