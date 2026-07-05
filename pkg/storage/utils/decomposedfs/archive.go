@@ -7,7 +7,7 @@ import (
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 
 	"github.com/opencloud-eu/reva/v2/pkg/storage/fs/zipfs"
-	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/node"
+	"github.com/opencloud-eu/reva/v2/pkg/storage/utils/decomposedfs/node"
 )
 
 // listArchiveContents lists the contents of an archive file as if it were a directory.
