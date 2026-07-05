@@ -163,15 +163,16 @@ type IDCacher interface {
 
 // Node represents a node in the tree and provides methods to get a Parent or Child instance
 type Node struct {
-	SpaceID   string
-	ParentID  string
-	ID        string
-	Name      string
-	Blobsize  int64
-	BlobID    string
-	owner     *userpb.UserId
-	Exists    bool
-	SpaceRoot *Node
+	SpaceID          string
+	ParentID         string
+	ID               string
+	Name             string
+	Blobsize         int64
+	BlobID           string
+	owner            *userpb.UserId
+	Exists           bool
+	SpaceRoot        *Node
+	ArchiveInnerPath string // set by WalkPath when traversing into an archive
 
 	lu          PathLookup
 	xattrsCache map[string][]byte
@@ -660,6 +661,15 @@ func (n *Node) SetFavorite(ctx context.Context, uid *userpb.UserId, val string) 
 func (n *Node) IsDir(ctx context.Context) bool {
 	attr, _ := n.XattrInt32(ctx, prefixes.TypeAttr)
 	return attr == int32(provider.ResourceType_RESOURCE_TYPE_CONTAINER)
+}
+
+// IsArchive returns true if the node is a file with a browsable archive extension (.zip, .7z).
+func (n *Node) IsArchive(ctx context.Context) bool {
+	if n == nil || !n.Exists || n.IsDir(ctx) {
+		return false
+	}
+	lower := strings.ToLower(n.Name)
+	return strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".7z")
 }
 
 // AsResourceInfo return the node as CS3 ResourceInfo
