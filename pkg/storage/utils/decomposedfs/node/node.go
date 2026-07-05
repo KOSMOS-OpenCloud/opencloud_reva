@@ -669,7 +669,12 @@ func (n *Node) IsArchive(ctx context.Context) bool {
 		return false
 	}
 	lower := strings.ToLower(n.Name)
-	return strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".7z")
+	for _, ext := range []string{".zip", ".7z", ".iso", ".img", ".raw", ".squashfs", ".fat", ".ext4"} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 // AsResourceInfo return the node as CS3 ResourceInfo
