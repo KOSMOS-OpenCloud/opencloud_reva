@@ -42,7 +42,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/opencloud-eu/reva/v2/pkg/appctx"
 	ctxpkg "github.com/opencloud-eu/reva/v2/pkg/ctx"
 	"github.com/opencloud-eu/reva/v2/pkg/errtypes"
 	"github.com/opencloud-eu/reva/v2/pkg/events"
@@ -954,14 +953,6 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 		return
 	}
 
-	appctx.GetLogger(ctx).Info().
-		Str("name", node.Name).
-		Bool("exists", node.Exists).
-		Bool("isArchive", node.IsArchive(ctx)).
-		Str("archiveInnerPath", node.ArchiveInnerPath).
-		Str("refPath", ref.GetPath()).
-		Msg("archive: GetMD node info")
-
 	if !node.Exists {
 		err = errtypes.NotFound(filepath.Join(node.ParentID, node.Name))
 		return
@@ -970,10 +961,6 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 	// Archive browsing: if WalkPath resolved into an archive with an inner path,
 	// return metadata for the inner path instead of the archive file itself.
 	if node.IsArchive(ctx) && node.ArchiveInnerPath != "" {
-		appctx.GetLogger(ctx).Info().
-			Str("name", node.Name).
-			Str("innerPath", node.ArchiveInnerPath).
-			Msg("archive: GetMD on archive inner path")
 		diskPath := node.InternalPath()
 		archive, archErr := zipfs.GlobalCache().Get(diskPath)
 		if archErr != nil {
@@ -1027,10 +1014,6 @@ func (fs *Decomposedfs) ListFolder(ctx context.Context, ref *provider.Reference,
 
 	// Archive browsing: if the node is an archive file, list its contents
 	if n.IsArchive(ctx) {
-		appctx.GetLogger(ctx).Info().
-			Str("name", n.Name).
-			Str("innerPath", n.ArchiveInnerPath).
-			Msg("archive: ListFolder on archive node")
 		return fs.listArchiveContents(ctx, n, n.ArchiveInnerPath)
 	}
 

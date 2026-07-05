@@ -259,14 +259,6 @@ func (lu *Lookup) WalkPath(ctx context.Context, r *node.Node, p string, followRe
 			r.SpaceRoot = r
 		}
 
-		// Debug: use fmt.Fprintf(os.Stderr) to ensure visibility in container logs
-		if strings.Contains(p, ".zip") {
-			fmt.Fprintf(os.Stderr, "ZIPFS-WALK: segment=%s i=%d rExists=%v rName=%s prevName=%s prevIsArchive=%v\n",
-				segments[i], i, r.Exists, r.Name,
-				func() string { if prev != nil { return prev.Name }; return "" }(),
-				prev != nil && prev.IsArchive(ctx))
-		}
-
 		if !r.Exists {
 			// Check if the previous node (parent in the walk) is an archive file —
 			// remaining segments are an inner path inside the archive.
