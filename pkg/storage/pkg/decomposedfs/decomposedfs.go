@@ -717,7 +717,15 @@ func (fs *Decomposedfs) GetPathByID(ctx context.Context, id *provider.ResourceId
 		}
 		return perms.GetPath
 	}
-	return fs.lu.Path(ctx, n, hp)
+	p, err := fs.lu.Path(ctx, n, hp)
+	if err != nil {
+		return "", err
+	}
+	// For archive entries, append the inner path
+	if n.ArchiveInnerPath != "" {
+		p = filepath.Join(p, n.ArchiveInnerPath)
+	}
+	return p, nil
 }
 
 // CreateDir creates the specified directory
