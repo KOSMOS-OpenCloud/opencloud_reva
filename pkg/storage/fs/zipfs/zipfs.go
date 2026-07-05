@@ -217,9 +217,10 @@ func ListFolder(a *CachedArchive, innerPath string, spaceID string) ([]*provider
 		seen[childName] = true
 
 		if len(parts) > 1 || strings.HasSuffix(name, "/") {
-			result = append(result, makeDirInfo(spaceID, prefix+childName, f.Modified))
+			// Path must be relative (just the child name) — the caller joins with the request path
+			result = append(result, makeDirInfo(spaceID, childName, f.Modified))
 		} else {
-			result = append(result, makeFileInfo(spaceID, f))
+			result = append(result, makeFileInfoRelative(spaceID, childName, f))
 		}
 	}
 
@@ -285,12 +286,12 @@ func makeRootInfo(a *CachedArchive, spaceID string) *provider.ResourceInfo {
 	}
 }
 
-func makeDirInfo(spaceID, p string, modified time.Time) *provider.ResourceInfo {
+func makeDirInfo(spaceID, childName string, modified time.Time) *provider.ResourceInfo {
 	return &provider.ResourceInfo{
 		Type: provider.ResourceType_RESOURCE_TYPE_CONTAINER,
-		Id:   makeID(spaceID, p),
-		Path: "/" + strings.TrimPrefix(p, "/"),
-		Name: path.Base(p),
+		Id:   makeID(spaceID, childName),
+		Path: childName,
+		Name: childName,
 		Mtime: &typespb.Timestamp{
 			Seconds: uint64(modified.Unix()),
 		},
@@ -303,6 +304,18 @@ func makeFileInfo(spaceID string, f *zip.File) *provider.ResourceInfo {
 		Id:       makeID(spaceID, f.Name),
 		Path:     "/" + f.Name,
 		Name:     path.Base(f.Name),
+		Size:     f.UncompressedSize64,
+		Mtime:    &typespb.Timestamp{Seconds: uint64(f.Modified.Unix())},
+		Checksum: &provider.ResourceChecksum{Type: provider.ResourceChecksumType_RESOURCE_CHECKSUM_TYPE_UNSET, Sum: fmt.Sprintf("%08x", f.CRC32)},
+	}
+}
+
+func makeFileInfoRelative(spaceID string, childName string, f *zip.File) *provider.ResourceInfo {
+	return &provider.ResourceInfo{
+		Type:     provider.ResourceType_RESOURCE_TYPE_FILE,
+		Id:       makeID(spaceID, f.Name),
+		Path:     childName,
+		Name:     childName,
 		Size:     f.UncompressedSize64,
 		Mtime:    &typespb.Timestamp{Seconds: uint64(f.Modified.Unix())},
 		Checksum: &provider.ResourceChecksum{Type: provider.ResourceChecksumType_RESOURCE_CHECKSUM_TYPE_UNSET, Sum: fmt.Sprintf("%08x", f.CRC32)},
