@@ -191,7 +191,8 @@ func GlobalCache() *Cache {
 }
 
 // ListFolder returns the contents of a directory inside the ZIP.
-func ListFolder(a *CachedArchive, innerPath string, spaceID string) ([]*provider.ResourceInfo, error) {
+// archiveNodeID is the real node ID of the ZIP file, used to build resolvable IDs.
+func ListFolder(a *CachedArchive, innerPath string, spaceID string, archiveNodeID string) ([]*provider.ResourceInfo, error) {
 	prefix := ""
 	if innerPath != "" {
 		prefix = strings.TrimSuffix(innerPath, "/") + "/"
@@ -219,9 +220,9 @@ func ListFolder(a *CachedArchive, innerPath string, spaceID string) ([]*provider
 
 		fullPath := prefix + childName // full inner path for consistent IDs
 		if len(parts) > 1 || strings.HasSuffix(name, "/") {
-			result = append(result, makeDirInfoWithID(spaceID, fullPath, childName, f.Modified))
+			result = append(result, makeDirInfoWithID(spaceID, archiveNodeID, fullPath, childName, f.Modified))
 		} else {
-			result = append(result, makeFileInfoRelative(spaceID, fullPath, childName, f))
+			result = append(result, makeFileInfoRelative(spaceID, archiveNodeID, fullPath, childName, f))
 		}
 	}
 
@@ -229,9 +230,9 @@ func ListFolder(a *CachedArchive, innerPath string, spaceID string) ([]*provider
 }
 
 // Stat returns metadata for a path inside the ZIP.
-func Stat(a *CachedArchive, innerPath string, spaceID string) (*provider.ResourceInfo, error) {
+func Stat(a *CachedArchive, innerPath string, spaceID string, archiveNodeID string) (*provider.ResourceInfo, error) {
 	if innerPath == "" {
-		return makeRootInfo(a, spaceID), nil
+		return makeRootInfo(a, spaceID, archiveNodeID), nil
 	}
 
 	clean := strings.TrimSuffix(innerPath, "/")
@@ -240,7 +241,7 @@ func Stat(a *CachedArchive, innerPath string, spaceID string) (*provider.Resourc
 	for _, f := range a.Reader.File {
 		n := strings.TrimSuffix(f.Name, "/")
 		if n == clean && !strings.HasSuffix(f.Name, "/") {
-			return makeFileInfo(spaceID, f), nil
+			return makeFileInfo(spaceID, archiveNodeID, f), nil
 		}
 	}
 
@@ -248,7 +249,7 @@ func Stat(a *CachedArchive, innerPath string, spaceID string) (*provider.Resourc
 	dirPrefix := clean + "/"
 	for _, f := range a.Reader.File {
 		if strings.HasPrefix(f.Name, dirPrefix) {
-			return makeDirInfo(spaceID, clean, f.Modified), nil
+			return makeDirInfo(spaceID, archiveNodeID, clean, f.Modified), nil
 		}
 	}
 
@@ -256,7 +257,7 @@ func Stat(a *CachedArchive, innerPath string, spaceID string) (*provider.Resourc
 }
 
 // Download opens a file inside the ZIP for reading.
-func Download(a *CachedArchive, innerPath string, spaceID string) (*provider.ResourceInfo, io.ReadCloser, error) {
+func Download(a *CachedArchive, innerPath string, spaceID string, archiveNodeID string) (*provider.ResourceInfo, io.ReadCloser, error) {
 	clean := strings.TrimSuffix(innerPath, "/")
 
 	for _, f := range a.Reader.File {
@@ -266,7 +267,7 @@ func Download(a *CachedArchive, innerPath string, spaceID string) (*provider.Res
 			if err != nil {
 				return nil, nil, fmt.Errorf("open zip entry %s: %w", innerPath, err)
 			}
-			return makeFileInfo(spaceID, f), rc, nil
+			return makeFileInfo(spaceID, archiveNodeID, f), rc, nil
 		}
 	}
 
@@ -275,10 +276,10 @@ func Download(a *CachedArchive, innerPath string, spaceID string) (*provider.Res
 
 // --- helpers ---
 
-func makeRootInfo(a *CachedArchive, spaceID string) *provider.ResourceInfo {
+func makeRootInfo(a *CachedArchive, spaceID, archiveNodeID string) *provider.ResourceInfo {
 	return &provider.ResourceInfo{
 		Type: provider.ResourceType_RESOURCE_TYPE_CONTAINER,
-		Id:   makeID(spaceID, "/"),
+		Id:   makeID(spaceID, archiveNodeID, ""),
 		Path: "/",
 		Size: uint64(a.Size),
 		Mtime: &typespb.Timestamp{
@@ -287,11 +288,10 @@ func makeRootInfo(a *CachedArchive, spaceID string) *provider.ResourceInfo {
 	}
 }
 
-// makeDirInfo creates a directory ResourceInfo. Used by Stat where fullPath = clean innerPath.
-func makeDirInfo(spaceID, fullPath string, modified time.Time) *provider.ResourceInfo {
+func makeDirInfo(spaceID, archiveNodeID, fullPath string, modified time.Time) *provider.ResourceInfo {
 	return &provider.ResourceInfo{
 		Type: provider.ResourceType_RESOURCE_TYPE_CONTAINER,
-		Id:   makeID(spaceID, fullPath),
+		Id:   makeID(spaceID, archiveNodeID, fullPath),
 		Path: path.Base(fullPath),
 		Name: path.Base(fullPath),
 		Etag: makeEtag(fullPath, modified),
@@ -301,11 +301,10 @@ func makeDirInfo(spaceID, fullPath string, modified time.Time) *provider.Resourc
 	}
 }
 
-// makeDirInfoWithID creates a directory ResourceInfo with explicit ID path and display name.
-func makeDirInfoWithID(spaceID, idPath, displayName string, modified time.Time) *provider.ResourceInfo {
+func makeDirInfoWithID(spaceID, archiveNodeID, idPath, displayName string, modified time.Time) *provider.ResourceInfo {
 	return &provider.ResourceInfo{
 		Type: provider.ResourceType_RESOURCE_TYPE_CONTAINER,
-		Id:   makeID(spaceID, idPath),
+		Id:   makeID(spaceID, archiveNodeID, idPath),
 		Path: displayName,
 		Name: displayName,
 		Etag: makeEtag(idPath, modified),
@@ -315,10 +314,10 @@ func makeDirInfoWithID(spaceID, idPath, displayName string, modified time.Time) 
 	}
 }
 
-func makeFileInfo(spaceID string, f *zip.File) *provider.ResourceInfo {
+func makeFileInfo(spaceID, archiveNodeID string, f *zip.File) *provider.ResourceInfo {
 	return &provider.ResourceInfo{
 		Type:     provider.ResourceType_RESOURCE_TYPE_FILE,
-		Id:       makeID(spaceID, f.Name),
+		Id:       makeID(spaceID, archiveNodeID, f.Name),
 		Path:     "/" + f.Name,
 		Name:     path.Base(f.Name),
 		Size:     f.UncompressedSize64,
@@ -329,10 +328,10 @@ func makeFileInfo(spaceID string, f *zip.File) *provider.ResourceInfo {
 	}
 }
 
-func makeFileInfoRelative(spaceID, idPath, displayName string, f *zip.File) *provider.ResourceInfo {
+func makeFileInfoRelative(spaceID, archiveNodeID, idPath, displayName string, f *zip.File) *provider.ResourceInfo {
 	return &provider.ResourceInfo{
 		Type:     provider.ResourceType_RESOURCE_TYPE_FILE,
-		Id:       makeID(spaceID, idPath),
+		Id:       makeID(spaceID, archiveNodeID, idPath),
 		Path:     displayName,
 		Name:     displayName,
 		Size:     f.UncompressedSize64,
@@ -360,11 +359,32 @@ func makeEtag(name string, modified time.Time) string {
 	return fmt.Sprintf(`"%x"`, h[:8])
 }
 
-func makeID(spaceID, p string) *provider.ResourceId {
-	h := md5.Sum([]byte(p))
+func makeID(spaceID, archiveNodeID, innerPath string) *provider.ResourceId {
+	opaque := archiveNodeID + "!zip"
+	if innerPath != "" {
+		opaque += "/" + innerPath
+	}
 	return &provider.ResourceId{
 		StorageId: spaceID,
 		SpaceId:   spaceID,
-		OpaqueId:  fmt.Sprintf("zip-%x", h[:8]),
+		OpaqueId:  opaque,
 	}
+}
+
+// ParseZipID checks if an OpaqueId is a ZIP archive reference and returns
+// the archive node ID and inner path. Returns ("", "", false) if not a ZIP ID.
+func ParseZipID(opaqueID string) (archiveNodeID, innerPath string, ok bool) {
+	idx := strings.Index(opaqueID, "!zip")
+	if idx < 0 {
+		return "", "", false
+	}
+	archiveNodeID = opaqueID[:idx]
+	rest := opaqueID[idx+4:] // skip "!zip"
+	if rest == "" {
+		return archiveNodeID, "", true
+	}
+	if rest[0] == '/' {
+		return archiveNodeID, rest[1:], true
+	}
+	return "", "", false
 }

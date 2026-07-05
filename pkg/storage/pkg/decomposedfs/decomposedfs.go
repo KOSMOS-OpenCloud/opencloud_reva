@@ -971,7 +971,7 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 		if archErr != nil {
 			return nil, archErr
 		}
-		return zipfs.Stat(archive, node.ArchiveInnerPath, node.SpaceID)
+		return zipfs.Stat(archive, node.ArchiveInnerPath, node.SpaceID, node.ID)
 	}
 
 	rp, err := fs.p.AssemblePermissions(ctx, node)

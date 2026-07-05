@@ -19,7 +19,7 @@ func (fs *Decomposedfs) listArchiveContents(ctx context.Context, n *node.Node, i
 	}
 
 	spaceID := n.SpaceID
-	return zipfs.ListFolder(archive, innerPath, spaceID)
+	return zipfs.ListFolder(archive, innerPath, spaceID, n.ID)
 }
 
 // downloadArchiveEntry streams a single file from inside an archive.
@@ -32,7 +32,7 @@ func (fs *Decomposedfs) downloadArchiveEntry(ctx context.Context, n *node.Node, 
 	}
 
 	spaceID := n.SpaceID
-	info, rc, err := zipfs.Download(archive, innerPath, spaceID)
+	info, rc, err := zipfs.Download(archive, innerPath, spaceID, n.ID)
 	if err != nil {
 		return nil, nil, err
 	}

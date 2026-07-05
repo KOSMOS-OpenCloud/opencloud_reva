@@ -104,7 +104,7 @@ func TestCacheAndListFolder(t *testing.T) {
 	}
 
 	// List root
-	infos, err := ListFolder(a, "", "test-space")
+	infos, err := ListFolder(a, "", "test-space", "archive-node-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestCacheAndListFolder(t *testing.T) {
 	}
 
 	// List docs/
-	infos, err = ListFolder(a, "docs", "test-space")
+	infos, err = ListFolder(a, "docs", "test-space", "archive-node-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestStatAndDownload(t *testing.T) {
 	}
 
 	// Stat file
-	info, err := Stat(a, "hello.txt", "test-space")
+	info, err := Stat(a, "hello.txt", "test-space", "archive-node-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestStatAndDownload(t *testing.T) {
 	}
 
 	// Stat directory
-	info, err = Stat(a, "sub", "test-space")
+	info, err = Stat(a, "sub", "test-space", "archive-node-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestStatAndDownload(t *testing.T) {
 	}
 
 	// Download
-	info, rc, err := Download(a, "hello.txt", "test-space")
+	info, rc, err := Download(a, "hello.txt", "test-space", "archive-node-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestStatAndDownload(t *testing.T) {
 	}
 
 	// Not found
-	_, err = Stat(a, "nonexistent", "test-space")
+	_, err = Stat(a, "nonexistent", "test-space", "archive-node-1")
 	if err == nil {
 		t.Error("expected error for nonexistent path")
 	}
@@ -199,9 +199,10 @@ func TestIDConsistency(t *testing.T) {
 	}
 
 	spaceID := "test-space"
+	archiveNodeID := "archive-node-1"
 
 	// List root → get dir1's ID
-	rootItems, err := ListFolder(a, "", spaceID)
+	rootItems, err := ListFolder(a, "", spaceID, archiveNodeID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +217,7 @@ func TestIDConsistency(t *testing.T) {
 	}
 
 	// Stat dir1 → get dir1's ID
-	dir1Stat, err := Stat(a, "dir1", spaceID)
+	dir1Stat, err := Stat(a, "dir1", spaceID, archiveNodeID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +227,7 @@ func TestIDConsistency(t *testing.T) {
 	}
 
 	// List dir1 → get dir2's ID
-	dir1Items, err := ListFolder(a, "dir1", spaceID)
+	dir1Items, err := ListFolder(a, "dir1", spaceID, archiveNodeID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +245,7 @@ func TestIDConsistency(t *testing.T) {
 	}
 
 	// Stat dir1/dir2 → must match
-	dir2Stat, err := Stat(a, "dir1/dir2", spaceID)
+	dir2Stat, err := Stat(a, "dir1/dir2", spaceID, archiveNodeID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +254,7 @@ func TestIDConsistency(t *testing.T) {
 	}
 
 	// Stat dir1/other.txt → must match
-	otherStat, err := Stat(a, "dir1/other.txt", spaceID)
+	otherStat, err := Stat(a, "dir1/other.txt", spaceID, archiveNodeID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,5 +268,29 @@ func TestIDConsistency(t *testing.T) {
 	}
 	if otherStat.Name != "other.txt" {
 		t.Errorf("Stat name for dir1/other.txt = %q, want 'other.txt'", otherStat.Name)
+	}
+}
+
+func TestParseZipID(t *testing.T) {
+	tests := []struct {
+		input         string
+		archiveNodeID string
+		innerPath     string
+		ok            bool
+	}{
+		{"abc123!zip/miau2/wauwau2", "abc123", "miau2/wauwau2", true},
+		{"abc123!zip", "abc123", "", true},
+		{"abc123!zip/file.txt", "abc123", "file.txt", true},
+		{"abc123", "", "", false},              // no !zip
+		{"abc123!other", "", "", false},         // wrong marker
+		{"abc123!zippy", "", "", false},         // !zippy != !zip
+	}
+
+	for _, tt := range tests {
+		nodeID, innerPath, ok := ParseZipID(tt.input)
+		if ok != tt.ok || nodeID != tt.archiveNodeID || innerPath != tt.innerPath {
+			t.Errorf("ParseZipID(%q) = (%q, %q, %v), want (%q, %q, %v)",
+				tt.input, nodeID, innerPath, ok, tt.archiveNodeID, tt.innerPath, tt.ok)
+		}
 	}
 }
