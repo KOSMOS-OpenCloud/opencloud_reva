@@ -366,9 +366,9 @@ func makeID(spaceID, archiveNodeID, innerPath string) *provider.ResourceId {
 		opaque += "." + base64.RawURLEncoding.EncodeToString([]byte(innerPath))
 	}
 	return &provider.ResourceId{
-		StorageId: spaceID,
-		SpaceId:   spaceID,
-		OpaqueId:  opaque,
+		// StorageId left empty — the storageprovider fills it in via addMissingStorageProviderID
+		SpaceId:  spaceID,
+		OpaqueId: opaque,
 	}
 }
 
