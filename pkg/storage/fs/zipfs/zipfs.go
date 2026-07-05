@@ -291,7 +291,7 @@ func makeDirInfo(spaceID, childName string, modified time.Time) *provider.Resour
 		Type: provider.ResourceType_RESOURCE_TYPE_CONTAINER,
 		Id:   makeID(spaceID, childName),
 		Path: childName,
-		Name: childName,
+		Name: path.Base(childName),
 		Mtime: &typespb.Timestamp{
 			Seconds: uint64(modified.Unix()),
 		},
