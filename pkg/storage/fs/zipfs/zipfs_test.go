@@ -181,3 +181,91 @@ func TestStatAndDownload(t *testing.T) {
 		t.Error("expected error for nonexistent path")
 	}
 }
+
+func TestIDConsistency(t *testing.T) {
+	// IDs from ListFolder must match IDs from Stat for the same entry
+	zipPath := createTestZip(t, map[string]string{
+		"dir1/dir2/file.txt": "content",
+		"dir1/other.txt":     "other",
+		"root.txt":           "root",
+	})
+
+	cache := NewCache(0)
+	defer cache.Close()
+
+	a, err := cache.Get(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	spaceID := "test-space"
+
+	// List root → get dir1's ID
+	rootItems, err := ListFolder(a, "", spaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dir1ListID string
+	for _, item := range rootItems {
+		if item.Name == "dir1" {
+			dir1ListID = item.Id.OpaqueId
+		}
+	}
+	if dir1ListID == "" {
+		t.Fatal("dir1 not found in root listing")
+	}
+
+	// Stat dir1 → get dir1's ID
+	dir1Stat, err := Stat(a, "dir1", spaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if dir1ListID != dir1Stat.Id.OpaqueId {
+		t.Errorf("ID mismatch for dir1: ListFolder=%q, Stat=%q", dir1ListID, dir1Stat.Id.OpaqueId)
+	}
+
+	// List dir1 → get dir2's ID
+	dir1Items, err := ListFolder(a, "dir1", spaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dir2ListID, otherListID string
+	for _, item := range dir1Items {
+		switch item.Name {
+		case "dir2":
+			dir2ListID = item.Id.OpaqueId
+		case "other.txt":
+			otherListID = item.Id.OpaqueId
+		}
+	}
+	if dir2ListID == "" {
+		t.Fatal("dir2 not found in dir1 listing")
+	}
+
+	// Stat dir1/dir2 → must match
+	dir2Stat, err := Stat(a, "dir1/dir2", spaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir2ListID != dir2Stat.Id.OpaqueId {
+		t.Errorf("ID mismatch for dir1/dir2: ListFolder=%q, Stat=%q", dir2ListID, dir2Stat.Id.OpaqueId)
+	}
+
+	// Stat dir1/other.txt → must match
+	otherStat, err := Stat(a, "dir1/other.txt", spaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherListID != otherStat.Id.OpaqueId {
+		t.Errorf("ID mismatch for dir1/other.txt: ListFolder=%q, Stat=%q", otherListID, otherStat.Id.OpaqueId)
+	}
+
+	// Name must be base name only
+	if dir2Stat.Name != "dir2" {
+		t.Errorf("Stat name for dir1/dir2 = %q, want 'dir2'", dir2Stat.Name)
+	}
+	if otherStat.Name != "other.txt" {
+		t.Errorf("Stat name for dir1/other.txt = %q, want 'other.txt'", otherStat.Name)
+	}
+}
