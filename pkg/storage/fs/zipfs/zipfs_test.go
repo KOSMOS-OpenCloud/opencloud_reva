@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -271,6 +272,72 @@ func TestIDConsistency(t *testing.T) {
 	}
 }
 
+func TestReloadRoundtrip(t *testing.T) {
+	// Simulates page reload: ListFolder → take fileId → ParseArchiveID → Stat
+	// The fileId from a listing must be parseable back to archiveNodeID + innerPath,
+	// and Stat with that innerPath must return matching data.
+	zipPath := createTestZip(t, map[string]string{
+		"dir1/dir2/file.txt": "deep content",
+		"dir1/other.txt":     "other",
+	})
+
+	cache := NewCache(0)
+	defer cache.Close()
+
+	a, err := cache.Get(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	spaceID := "test-space"
+	archiveNodeID := "real-node-uuid-123"
+
+	// Step 1: ListFolder dir1 — get dir2's fileId (as browser would store it)
+	items, err := ListFolder(a, "dir1", spaceID, archiveNodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dir2FileID string
+	for _, item := range items {
+		if item.Name == "dir2" {
+			dir2FileID = item.Id.OpaqueId
+		}
+	}
+	if dir2FileID == "" {
+		t.Fatal("dir2 not found in listing")
+	}
+
+	// Step 2: Simulate reload — parse the fileId back
+	parsedNodeID, parsedInnerPath, ok := ParseArchiveID(dir2FileID)
+	if !ok {
+		t.Fatalf("ParseArchiveID(%q) failed", dir2FileID)
+	}
+	if parsedNodeID != archiveNodeID {
+		t.Errorf("parsed archiveNodeID = %q, want %q", parsedNodeID, archiveNodeID)
+	}
+	if parsedInnerPath != "dir1/dir2" {
+		t.Errorf("parsed innerPath = %q, want 'dir1/dir2'", parsedInnerPath)
+	}
+
+	// Step 3: Stat with parsed innerPath — must return valid dir info
+	statInfo, err := Stat(a, parsedInnerPath, spaceID, archiveNodeID)
+	if err != nil {
+		t.Fatalf("Stat(%q) failed: %v", parsedInnerPath, err)
+	}
+	if statInfo.Name != "dir2" {
+		t.Errorf("Stat name = %q, want 'dir2'", statInfo.Name)
+	}
+	// The Stat fileId must match the original listing fileId
+	if statInfo.Id.OpaqueId != dir2FileID {
+		t.Errorf("Stat fileId = %q, ListFolder fileId = %q — mismatch!", statInfo.Id.OpaqueId, dir2FileID)
+	}
+
+	// Step 4: fileId must be URL-safe (no slashes)
+	if strings.Contains(dir2FileID, "/") {
+		t.Errorf("fileId contains slash (not URL-safe): %q", dir2FileID)
+	}
+}
+
 func TestParseArchiveID(t *testing.T) {
 	tests := []struct {
 		input         string
@@ -278,9 +345,9 @@ func TestParseArchiveID(t *testing.T) {
 		innerPath     string
 		ok            bool
 	}{
-		{"abc123!arc/miau2/wauwau2", "abc123", "miau2/wauwau2", true},
+		{"abc123!arc.bWlhdTIvd2F1d2F1Mg", "abc123", "miau2/wauwau2", true},
 		{"abc123!arc", "abc123", "", true},
-		{"abc123!arc/file.txt", "abc123", "file.txt", true},
+		{"abc123!arc.ZmlsZS50eHQ", "abc123", "file.txt", true},
 		{"abc123", "", "", false},              // no !arc
 		{"abc123!other", "", "", false},         // wrong marker
 		{"abc123!arcpy", "", "", false},         // !arcpy != !arc

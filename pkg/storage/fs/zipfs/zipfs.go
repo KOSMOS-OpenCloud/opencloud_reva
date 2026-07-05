@@ -8,6 +8,7 @@ package zipfs
 import (
 	"archive/zip"
 	"crypto/md5"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -362,7 +363,7 @@ func makeEtag(name string, modified time.Time) string {
 func makeID(spaceID, archiveNodeID, innerPath string) *provider.ResourceId {
 	opaque := archiveNodeID + "!arc"
 	if innerPath != "" {
-		opaque += "/" + innerPath
+		opaque += "." + base64.RawURLEncoding.EncodeToString([]byte(innerPath))
 	}
 	return &provider.ResourceId{
 		StorageId: spaceID,
@@ -371,8 +372,8 @@ func makeID(spaceID, archiveNodeID, innerPath string) *provider.ResourceId {
 	}
 }
 
-// ParseArchiveID checks if an OpaqueId is a ZIP archive reference and returns
-// the archive node ID and inner path. Returns ("", "", false) if not a ZIP ID.
+// ParseArchiveID checks if an OpaqueId is an archive reference and returns
+// the archive node ID and inner path. Returns ("", "", false) if not an archive ID.
 func ParseArchiveID(opaqueID string) (archiveNodeID, innerPath string, ok bool) {
 	idx := strings.Index(opaqueID, "!arc")
 	if idx < 0 {
@@ -383,8 +384,12 @@ func ParseArchiveID(opaqueID string) (archiveNodeID, innerPath string, ok bool) 
 	if rest == "" {
 		return archiveNodeID, "", true
 	}
-	if rest[0] == '/' {
-		return archiveNodeID, rest[1:], true
+	if rest[0] == '.' {
+		decoded, err := base64.RawURLEncoding.DecodeString(rest[1:])
+		if err != nil {
+			return "", "", false
+		}
+		return archiveNodeID, string(decoded), true
 	}
 	return "", "", false
 }
