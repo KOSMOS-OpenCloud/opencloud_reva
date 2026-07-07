@@ -200,8 +200,15 @@ type CapabilitiesFiles struct {
 	Tags             ocsBool                      `json:"tags" xml:"tags"`
 	BlacklistedFiles []string                     `json:"blacklisted_files" xml:"blacklisted_files>element" mapstructure:"blacklisted_files"`
 	TusSupport       *CapabilitiesFilesTusSupport `json:"tus_support" xml:"tus_support" mapstructure:"tus_support"`
-	Archivers        []*CapabilitiesArchiver      `json:"archivers" xml:"archivers" mapstructure:"archivers"`
-	AppProviders     []*CapabilitiesAppProvider   `json:"app_providers" xml:"app_providers" mapstructure:"app_providers"`
+	Archivers         []*CapabilitiesArchiver       `json:"archivers" xml:"archivers" mapstructure:"archivers"`
+	AppProviders      []*CapabilitiesAppProvider    `json:"app_providers" xml:"app_providers" mapstructure:"app_providers"`
+	BrowsableArchives []BrowsableArchiveFormat      `json:"browsable_archives,omitempty" xml:"browsable_archives" mapstructure:"browsable_archives"`
+}
+
+// BrowsableArchiveFormat describes an archive format that can be browsed as a virtual folder.
+type BrowsableArchiveFormat struct {
+	Extension string   `json:"extension" xml:"extension"`
+	MimeTypes []string `json:"mimeTypes" xml:"mimeTypes>element" mapstructure:"mime_types"`
 }
 
 // CapabilitiesDav holds dav endpoint config

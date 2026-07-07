@@ -24,6 +24,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/internal/http/services/owncloud/ocs/config"
 	"github.com/opencloud-eu/reva/v2/internal/http/services/owncloud/ocs/response"
 	"github.com/opencloud-eu/reva/v2/pkg/owncloud/ocs"
+	"github.com/opencloud-eu/reva/v2/pkg/storage/fs/archivefs"
 )
 
 // Handler renders the capability endpoint
@@ -113,6 +114,16 @@ func (h *Handler) Init(c *config.Config) {
 
 	if h.c.Capabilities.Files.AppProviders == nil {
 		h.c.Capabilities.Files.AppProviders = []*ocs.CapabilitiesAppProvider{}
+	}
+
+	// browsable archives — populated from archivefs registry
+	if h.c.Capabilities.Files.BrowsableArchives == nil {
+		formats := archivefs.SupportedFormats()
+		ba := make([]ocs.BrowsableArchiveFormat, len(formats))
+		for i, f := range formats {
+			ba[i] = ocs.BrowsableArchiveFormat{Extension: f.Extension, MimeTypes: f.MimeTypes}
+		}
+		h.c.Capabilities.Files.BrowsableArchives = ba
 	}
 
 	// dav
