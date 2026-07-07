@@ -16,7 +16,10 @@ type zipOpener struct{}
 
 func (z *zipOpener) CanHandle(name string) bool {
 	lower := strings.ToLower(name)
-	return strings.HasSuffix(lower, ".zip")
+	return strings.HasSuffix(lower, ".zip") ||
+		strings.HasSuffix(lower, ".jar") ||
+		strings.HasSuffix(lower, ".war") ||
+		strings.HasSuffix(lower, ".ear")
 }
 
 func (z *zipOpener) Open(diskPath string) (fs.FS, io.Closer, error) {
