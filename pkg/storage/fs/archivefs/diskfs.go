@@ -21,12 +21,23 @@ var diskfsExtensions = []string{".iso", ".img", ".raw", ".squashfs", ".fat", ".e
 
 func (d *diskfsOpener) CanHandle(name string) bool {
 	lower := strings.ToLower(name)
-	for _, ext := range diskfsExtensions {
-		if strings.HasSuffix(lower, ext) {
+	for _, f := range d.Formats() {
+		if strings.HasSuffix(lower, f.Extension) {
 			return true
 		}
 	}
 	return false
+}
+
+func (d *diskfsOpener) Formats() []ArchiveFormat {
+	return []ArchiveFormat{
+		{Extension: ".iso", MimeTypes: []string{"application/x-iso9660-image"}},
+		{Extension: ".img", MimeTypes: []string{"application/x-raw-disk-image", "application/octet-stream"}},
+		{Extension: ".raw", MimeTypes: []string{"application/x-raw-disk-image", "application/octet-stream"}},
+		{Extension: ".squashfs", MimeTypes: []string{"application/octet-stream"}},
+		{Extension: ".fat", MimeTypes: []string{"application/octet-stream"}},
+		{Extension: ".ext4", MimeTypes: []string{"application/octet-stream"}},
+	}
 }
 
 func (d *diskfsOpener) Open(diskPath string) (fs.FS, io.Closer, error) {

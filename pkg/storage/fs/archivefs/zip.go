@@ -16,10 +16,21 @@ type zipOpener struct{}
 
 func (z *zipOpener) CanHandle(name string) bool {
 	lower := strings.ToLower(name)
-	return strings.HasSuffix(lower, ".zip") ||
-		strings.HasSuffix(lower, ".jar") ||
-		strings.HasSuffix(lower, ".war") ||
-		strings.HasSuffix(lower, ".ear")
+	for _, f := range z.Formats() {
+		if strings.HasSuffix(lower, f.Extension) {
+			return true
+		}
+	}
+	return false
+}
+
+func (z *zipOpener) Formats() []ArchiveFormat {
+	return []ArchiveFormat{
+		{Extension: ".zip", MimeTypes: []string{"application/zip", "application/x-zip-compressed"}},
+		{Extension: ".jar", MimeTypes: []string{"application/java-archive"}},
+		{Extension: ".war", MimeTypes: []string{"application/java-archive"}},
+		{Extension: ".ear", MimeTypes: []string{"application/java-archive"}},
+	}
 }
 
 func (z *zipOpener) Open(diskPath string) (fs.FS, io.Closer, error) {

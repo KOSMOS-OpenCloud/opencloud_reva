@@ -19,6 +19,12 @@ func (s *sevenzOpener) CanHandle(name string) bool {
 	return strings.HasSuffix(strings.ToLower(name), ".7z")
 }
 
+func (s *sevenzOpener) Formats() []ArchiveFormat {
+	return []ArchiveFormat{
+		{Extension: ".7z", MimeTypes: []string{"application/x-7z-compressed"}},
+	}
+}
+
 func (s *sevenzOpener) Open(diskPath string) (fs.FS, io.Closer, error) {
 	r, err := sevenzip.OpenReader(diskPath)
 	if err != nil {

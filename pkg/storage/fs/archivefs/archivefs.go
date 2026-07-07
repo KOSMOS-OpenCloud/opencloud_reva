@@ -32,6 +32,14 @@ import (
 type Opener interface {
 	Open(diskPath string) (fs.FS, io.Closer, error)
 	CanHandle(name string) bool
+	// Formats returns the archive formats this opener supports.
+	Formats() []ArchiveFormat
+}
+
+// ArchiveFormat describes a browsable archive format.
+type ArchiveFormat struct {
+	Extension string   `json:"extension"` // e.g. ".zip"
+	MimeTypes []string `json:"mimeTypes"` // e.g. ["application/zip"]
 }
 
 // registry of openers, checked in order
@@ -54,6 +62,21 @@ func findOpener(name string) Opener {
 // IsArchiveName checks if a filename has a known archive extension.
 func IsArchiveName(name string) bool {
 	return findOpener(name) != nil
+}
+
+// SupportedFormats returns all browsable archive formats from registered openers.
+func SupportedFormats() []ArchiveFormat {
+	var formats []ArchiveFormat
+	seen := make(map[string]bool)
+	for _, o := range openers {
+		for _, f := range o.Formats() {
+			if !seen[f.Extension] {
+				seen[f.Extension] = true
+				formats = append(formats, f)
+			}
+		}
+	}
+	return formats
 }
 
 // --- Cache ---
