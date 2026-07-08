@@ -319,6 +319,7 @@ func (m *manager) GetAppPassword(ctx context.Context, user *userpb.UserId, secre
 				log.Debug().Err(err).Msg("Error comparing password and hash")
 			case ok:
 				// password found
+				fmt.Printf("[appauth-debug] MATCH id=%s label=%q\n", id[:8], pw.Label)
 				if pw.Expiration != nil && pw.Expiration.Seconds != 0 && uint64(time.Now().Unix()) > pw.Expiration.Seconds {
 					log.Debug().Str("AppPasswordId", id).Msg("password expired")
 					return nil, false, errtypes.NotFound("password not found")
