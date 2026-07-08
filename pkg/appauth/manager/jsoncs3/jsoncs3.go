@@ -314,6 +314,7 @@ func (m *manager) GetAppPassword(ctx context.Context, user *userpb.UserId, secre
 		matchedPw = nil
 		for id, pw := range a {
 			ok, err := argon2id.ComparePasswordAndHash(secret, pw.Password)
+			fmt.Printf("[appauth-debug] CHECK id=%s label=%q ok=%v err=%v\n", id[:8], pw.Label, ok, err)
 			switch {
 			case err != nil:
 				log.Debug().Err(err).Msg("Error comparing password and hash")
