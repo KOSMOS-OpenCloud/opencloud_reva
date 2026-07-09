@@ -1950,11 +1950,17 @@ func metadataKeyOf(n *xml.Name) string {
 	case "share-types", "tags", "lockdiscovery":
 		return n.Local
 	default:
-		// For oc: namespace, use the local name directly as the metadata key.
-		// This matches how the Graph Metadata API stores arbitrary metadata
-		// (e.g. "oy.fileReference") without namespace URI prefix.
 		if n.Space == net.NsOwncloud {
-			return n.Local
+			// Standard oc: properties need the full URI to match the keys
+			// defined in decomposedfs/node (e.g. ChecksumsKey, FavoriteKey).
+			switch n.Local {
+			case "checksums", "favorite":
+				return fmt.Sprintf("%s/%s", n.Space, n.Local)
+			default:
+				// Custom metadata (e.g. "oy.fileReference") uses the local
+				// name directly, matching how the Graph Metadata API stores it.
+				return n.Local
+			}
 		}
 		return fmt.Sprintf("%s/%s", n.Space, n.Local)
 	}
