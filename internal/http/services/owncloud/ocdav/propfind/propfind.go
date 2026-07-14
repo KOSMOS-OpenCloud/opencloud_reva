@@ -357,7 +357,7 @@ func (p *Handler) HandleSpacesPropfind(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 
-	metadataKeys, _ := metadataKeys(pf)
+	metadataKeys, _, _ := metadataKeys(pf)
 
 	// stat the reference and request the space in the field mask
 	res, err := client.Stat(ctx, &provider.StatRequest{
@@ -463,7 +463,11 @@ func (p *Handler) propfindResponse(ctx context.Context, w http.ResponseWriter, r
 	ctx, span := appctx.GetTracerProvider(r.Context()).Tracer(tracerName).Start(ctx, "propfind_response")
 	defer span.End()
 
+	// Extract parent metadata keys for om:parent-* resolution
+	_, _, parentMdKeys := metadataKeys(pf)
+
 	var linkshares map[string]struct{}
+	var gwClient gateway.GatewayAPIClient
 	// public link access does not show share-types
 	// oc:share-type is not part of an allprops response
 	if namespace != "/public" {
@@ -472,11 +476,6 @@ func (p *Handler) propfindResponse(ctx context.Context, w http.ResponseWriter, r
 			if prop.Space == net.NsOwncloud && (prop.Local == "share-types" || prop.Local == "permissions") {
 				filters := make([]*link.ListPublicSharesRequest_Filter, 0, len(resourceInfos))
 				for i := range resourceInfos {
-					// FIXME this is expensive
-					// the filters array grow by one for every file in a folder
-					// TODO store public links as grants on the storage, reassembling them here is too costly
-					// we can then add the filter if the file has share-types=3 in the opaque,
-					// same as user / group shares for share indicators
 					filters = append(filters, publicshare.ResourceIDFilter(resourceInfos[i].Id))
 				}
 				client, err := p.selector.Next()
@@ -485,6 +484,7 @@ func (p *Handler) propfindResponse(ctx context.Context, w http.ResponseWriter, r
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
+				gwClient = client
 				listResp, err := client.ListPublicShares(ctx, &link.ListPublicSharesRequest{Filters: filters})
 				if err == nil {
 					linkshares = make(map[string]struct{}, len(listResp.Share))
@@ -500,10 +500,18 @@ func (p *Handler) propfindResponse(ctx context.Context, w http.ResponseWriter, r
 		}
 	}
 
+	// Get a gateway client for parent-metadata resolution if needed
+	if len(parentMdKeys) > 0 && gwClient == nil {
+		client, err := p.selector.Next()
+		if err == nil {
+			gwClient = client
+		}
+	}
+
 	prefer := net.ParsePrefer(r.Header.Get(net.HeaderPrefer))
 	returnMinimal := prefer[net.HeaderPreferReturn] == "minimal"
 
-	propRes, err := MultistatusResponse(ctx, &pf, resourceInfos, p.PublicURL, namespace, linkshares, returnMinimal, p.urlSigner)
+	propRes, err := MultistatusResponseWithParent(ctx, &pf, resourceInfos, p.PublicURL, namespace, linkshares, returnMinimal, p.urlSigner, parentMdKeys, gwClient)
 	if err != nil {
 		log.Error().Err(err).Msg("error formatting propfind")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -556,7 +564,7 @@ func (p *Handler) getResourceInfos(ctx context.Context, w http.ResponseWriter, r
 	span.SetAttributes(attribute.KeyValue{Key: "depth", Value: attribute.StringValue(depth.String())})
 	defer span.End()
 
-	metadataKeys, fieldMaskPaths := metadataKeys(pf)
+	metadataKeys, fieldMaskPaths, _ := metadataKeys(pf)
 
 	// we need to stat all spaces to aggregate the root etag, mtime and size
 	// TODO cache per space (hah, no longer per user + per space!)
@@ -780,7 +788,7 @@ func (p *Handler) getSpaceResourceInfos(ctx context.Context, w http.ResponseWrit
 		return nil, false
 	}
 
-	metadataKeys, _ := metadataKeys(pf)
+	metadataKeys, _, _ := metadataKeys(pf)
 
 	resourceInfos := []*provider.ResourceInfo{}
 
@@ -862,11 +870,13 @@ func metadataKeysWithPrefix(prefix string, keys []string) []string {
 	return fullKeys
 }
 
-// metadataKeys splits the propfind properties into arbitrary metadata and ResourceInfo field mask paths
-func metadataKeys(pf XML) ([]string, []string) {
+// metadataKeys splits the propfind properties into arbitrary metadata, ResourceInfo field mask paths,
+// and parent metadata keys (om:parent-* properties that must be resolved from the parent node).
+func metadataKeys(pf XML) ([]string, []string, []string) {
 
 	var metadataKeys []string
 	var fieldMaskKeys []string
+	var parentMetadataKeys []string
 
 	if pf.Allprop != nil {
 		// TODO this changes the behavior and returns all properties if allprops has been set,
@@ -882,6 +892,13 @@ func metadataKeys(pf XML) ([]string, []string) {
 		for i := range pf.Prop {
 			if requiresExplicitFetching(&pf.Prop[i]) {
 				key := metadataKeyOf(&pf.Prop[i])
+
+				// om:parent-* keys: resolve from parent node, not the item itself
+				if pf.Prop[i].Space == net.NsOwncloudMetadata && strings.HasPrefix(key, "parent-") {
+					parentMetadataKeys = append(parentMetadataKeys, strings.TrimPrefix(key, "parent-"))
+					continue
+				}
+
 				switch key {
 				case "share-types":
 					fieldMaskKeys = append(fieldMaskKeys, key)
@@ -900,7 +917,7 @@ func metadataKeys(pf XML) ([]string, []string) {
 			}
 		}
 	}
-	return metadataKeys, fieldMaskKeys
+	return metadataKeys, fieldMaskKeys, parentMetadataKeys
 }
 
 func addChild(childInfos map[string]*provider.ResourceInfo,
@@ -958,6 +975,9 @@ func requiresExplicitFetching(n *xml.Name) bool {
 		}
 	case net.NsOCS:
 		return false
+	case net.NsOwncloudMetadata:
+		// om: namespace properties are always custom metadata — always fetch
+		return true
 	}
 	return true
 }
@@ -995,7 +1015,24 @@ func ReadPropfind(r io.Reader) (pf XML, status int, err error) {
 }
 
 // MultistatusResponse converts a list of resource infos into a multistatus response string
+// MultistatusResponse converts a list of resource infos into a multistatus response string
 func MultistatusResponse(ctx context.Context, pf *XML, mds []*provider.ResourceInfo, publicURL, ns string, linkshares map[string]struct{}, returnMinimal bool, downloadURLSigner signedurl.Signer) ([]byte, error) {
+	return MultistatusResponseWithParent(ctx, pf, mds, publicURL, ns, linkshares, returnMinimal, downloadURLSigner, nil, nil)
+}
+
+// parentMetadataMap maps parentFolderId → metadata key → value.
+type parentMetadataMap map[string]map[string]string
+
+// MultistatusResponseWithParent is like MultistatusResponse but additionally resolves
+// om:parent-* metadata properties by statting parent nodes via the gateway client.
+func MultistatusResponseWithParent(ctx context.Context, pf *XML, mds []*provider.ResourceInfo, publicURL, ns string, linkshares map[string]struct{}, returnMinimal bool, downloadURLSigner signedurl.Signer, parentMdKeys []string, client gateway.GatewayAPIClient) ([]byte, error) {
+
+	// Resolve parent metadata if parent-* keys were requested
+	var parentMd parentMetadataMap
+	if len(parentMdKeys) > 0 && client != nil {
+		parentMd = resolveParentMetadata(ctx, mds, parentMdKeys, client)
+	}
+
 	g, ctx := errgroup.WithContext(ctx)
 
 	type work struct {
@@ -1030,7 +1067,7 @@ func MultistatusResponse(ctx context.Context, pf *XML, mds []*provider.ResourceI
 	for i := 0; i < numWorkers; i++ {
 		g.Go(func() error {
 			for work := range workChan {
-				res, err := mdToPropResponse(ctx, pf, work.info, publicURL, ns, linkshares, returnMinimal, downloadURLSigner)
+				res, err := mdToPropResponse(ctx, pf, work.info, publicURL, ns, linkshares, returnMinimal, downloadURLSigner, parentMd)
 				if err != nil {
 					return err
 				}
@@ -1068,10 +1105,39 @@ func MultistatusResponse(ctx context.Context, pf *XML, mds []*provider.ResourceI
 	return msg, nil
 }
 
+// resolveParentMetadata batches stat calls for unique parent folders and returns
+// a map of parentID → metadataKey → value.
+func resolveParentMetadata(ctx context.Context, mds []*provider.ResourceInfo, parentMdKeys []string, client gateway.GatewayAPIClient) parentMetadataMap {
+	parentIDs := make(map[string]*provider.ResourceId, len(mds))
+	for _, md := range mds {
+		if pid := md.GetParentId(); pid != nil {
+			key := pid.GetStorageId() + "!" + pid.GetOpaqueId()
+			if _, exists := parentIDs[key]; !exists {
+				parentIDs[key] = pid
+			}
+		}
+	}
+	result := make(parentMetadataMap, len(parentIDs))
+	for key, pid := range parentIDs {
+		ref := &provider.Reference{ResourceId: pid, Path: "."}
+		res, err := client.Stat(ctx, &provider.StatRequest{
+			Ref:                   ref,
+			ArbitraryMetadataKeys: parentMdKeys,
+		})
+		if err != nil || res.GetStatus().GetCode() != rpc.Code_CODE_OK {
+			continue
+		}
+		if amd := res.GetInfo().GetArbitraryMetadata().GetMetadata(); amd != nil {
+			result[key] = amd
+		}
+	}
+	return result
+}
+
 // mdToPropResponse converts the CS3 metadata into a webdav PropResponse
 // ns is the CS3 namespace that needs to be removed from the CS3 path before
 // prefixing it with the baseURI
-func mdToPropResponse(ctx context.Context, pf *XML, md *provider.ResourceInfo, publicURL, ns string, linkshares map[string]struct{}, returnMinimal bool, urlSigner signedurl.Signer) (*ResponseXML, error) {
+func mdToPropResponse(ctx context.Context, pf *XML, md *provider.ResourceInfo, publicURL, ns string, linkshares map[string]struct{}, returnMinimal bool, urlSigner signedurl.Signer, parentMd parentMetadataMap) (*ResponseXML, error) {
 	ctx, span := appctx.GetTracerProvider(ctx).Tracer(tracerName).Start(ctx, "md_to_prop_response")
 	span.SetAttributes(attribute.KeyValue{Key: "publicURL", Value: attribute.StringValue(publicURL)})
 	span.SetAttributes(attribute.KeyValue{Key: "ns", Value: attribute.StringValue(ns)})
@@ -1763,6 +1829,22 @@ func mdToPropResponse(ctx context.Context, pf *XML, md *provider.ResourceInfo, p
 					appendToNotFound(prop.NotFound("d:" + pf.Prop[i].Local))
 				}
 			default:
+				// handle om:parent-* properties by looking up parent metadata
+				if pf.Prop[i].Space == net.NsOwncloudMetadata && strings.HasPrefix(pf.Prop[i].Local, "parent-") {
+					parentKey := strings.TrimPrefix(pf.Prop[i].Local, "parent-")
+					if pid := md.GetParentId(); pid != nil && parentMd != nil {
+						pidKey := pid.GetStorageId() + "!" + pid.GetOpaqueId()
+						if pmd, ok := parentMd[pidKey]; ok {
+							if v, ok := pmd[parentKey]; ok && v != "" {
+								appendToOK(prop.EscapedNS(pf.Prop[i].Space, pf.Prop[i].Local, v))
+								continue
+							}
+						}
+					}
+					appendToNotFound(prop.NotFoundNS(pf.Prop[i].Space, pf.Prop[i].Local))
+					continue
+				}
+
 				// handle custom properties
 				if k := md.GetArbitraryMetadata(); k == nil {
 					appendToNotFound(prop.NotFoundNS(pf.Prop[i].Space, pf.Prop[i].Local))
@@ -1944,6 +2026,11 @@ func (c *countingReader) Read(p []byte) (int, error) {
 }
 
 func metadataKeyOf(n *xml.Name) string {
+	switch n.Space {
+	case net.NsOwncloudMetadata:
+		// om: namespace uses short keys — om:aktencode → "aktencode"
+		return n.Local
+	}
 	switch n.Local {
 	case "quota-available-bytes":
 		return "quota"

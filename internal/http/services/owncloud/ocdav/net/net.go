@@ -42,6 +42,8 @@ const (
 	NsOwncloud = "http://owncloud.org/ns"
 	// NsOCS is the OCS ns
 	NsOCS = "http://open-collaboration-services.org/ns"
+	// NsOwncloudMetadata is the namespace for custom metadata properties (om:)
+	NsOwncloudMetadata = "http://owncloud.org/ns/metadata"
 
 	// RFC1123 time that mimics oc10. time.RFC1123 would end in "UTC", see https://github.com/golang/go/issues/13781
 	RFC1123 = "Mon, 02 Jan 2006 15:04:05 GMT"

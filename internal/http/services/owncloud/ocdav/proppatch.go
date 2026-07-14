@@ -166,7 +166,7 @@ func (s *svc) handleProppatch(ctx context.Context, w http.ResponseWriter, r *htt
 			// to match the Graph Metadata API key format. For other namespaces,
 			// use the full URI to avoid collisions.
 			var key string
-			if patches[i].Props[j].XMLName.Space == net.NsOwncloud {
+			if patches[i].Props[j].XMLName.Space == net.NsOwncloud || patches[i].Props[j].XMLName.Space == net.NsOwncloudMetadata {
 				key = patches[i].Props[j].XMLName.Local
 			} else {
 				key = fmt.Sprintf("%s/%s", patches[i].Props[j].XMLName.Space, patches[i].Props[j].XMLName.Local)
