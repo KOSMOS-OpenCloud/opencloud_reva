@@ -79,6 +79,8 @@ const (
 	RoleLegacy = "legacy"
 	// RoleDenied grants no permission at all on a resource
 	RoleDenied = "denied"
+	// RoleDropper allows listing and uploading/moving-in, but not reading/downloading
+	RoleDropper = "dropper"
 )
 
 // CS3ResourcePermissions for the role
@@ -222,6 +224,21 @@ func NewDeniedRole() *Role {
 		Name:                   RoleDenied,
 		cS3ResourcePermissions: &provider.ResourcePermissions{},
 		ocsPermissions:         PermissionsNone,
+	}
+}
+
+// NewDropperRole creates a dropper role — can list directory contents and
+// upload/move files in, but cannot read/download, delete, or move out.
+func NewDropperRole() *Role {
+	return &Role{
+		Name: RoleDropper,
+		cS3ResourcePermissions: &provider.ResourcePermissions{
+			Stat:               true,
+			GetPath:            true,
+			ListContainer:      true,
+			InitiateFileUpload: true,
+		},
+		ocsPermissions: PermissionCreate,
 	}
 }
 
