@@ -61,7 +61,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.25.2
 	github.com/onsi/gomega v1.38.2
 	github.com/opencloud-eu/opencloud v1.1.0
-	github.com/pablodz/inotifywaitgo v0.0.9
+	github.com/pablodz/inotifywaitgo v0.0.12
 	github.com/pkg/errors v0.9.1
 	github.com/pkg/xattr v0.4.12
 	github.com/prometheus/alertmanager v0.28.1
