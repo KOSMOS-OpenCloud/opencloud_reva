@@ -1050,6 +1050,8 @@ func (n *Node) ReadUserPermissions(ctx context.Context, u *userpb.User) (ap *pro
 	// The current implementation tries to be defensive for cases where users have hundreds or thousands of groups, so we iterate over the existing acls.
 	userace := prefixes.GrantPrefix + ace.UserAce(u.Id)
 	userFound := false
+	hasDeny := false
+	hasPositive := false
 	for i := range grantees {
 		switch {
 		// we only need to find the user once
@@ -1074,10 +1076,14 @@ func (n *Node) ReadUserPermissions(ctx context.Context, u *userpb.User) (ap *pro
 
 		switch {
 		case err == nil:
-			// If all permissions are set to false we have a deny grant
+			// A deny grant (all permissions false) excludes this grant path
+			// but does not block other positive grants the user may have
+			// via other groups or a direct user grant.
 			if grants.PermissionsEqual(g.Permissions, &provider.ResourcePermissions{}) {
-				return NoPermissions(), true, nil
+				hasDeny = true
+				continue
 			}
+			hasPositive = true
 			AddPermissions(ap, g.GetPermissions())
 		case metadata.IsAttrUnset(err):
 			appctx.GetLogger(ctx).Error().Str("spaceid", n.SpaceID).Str("nodeid", n.ID).Str("grant", grantees[i]).Interface("grantees", grantees).Msg("grant vanished from node after listing")
@@ -1086,6 +1092,13 @@ func (n *Node) ReadUserPermissions(ctx context.Context, u *userpb.User) (ap *pro
 			appctx.GetLogger(ctx).Error().Err(err).Str("spaceid", n.SpaceID).Str("nodeid", n.ID).Str("grant", grantees[i]).Msg("error reading permissions")
 			// continue with next segment
 		}
+	}
+
+	// Only deny access if there are deny grants but no positive grants.
+	// A deny removes one grant path, not the entire user's access.
+	if hasDeny && !hasPositive {
+		appctx.GetLogger(ctx).Debug().Str("spaceid", n.SpaceID).Str("nodeid", n.ID).Interface("user", u).Msg("all grant paths denied, returning no permissions")
+		return NoPermissions(), true, nil
 	}
 
 	appctx.GetLogger(ctx).Debug().Interface("permissions", ap).Str("spaceid", n.SpaceID).Str("nodeid", n.ID).Interface("user", u).Msg("returning aggregated permissions")
@@ -1121,19 +1134,22 @@ func (n *Node) IsDenied(ctx context.Context) bool {
 
 	}
 
+	hasDeny := false
+	hasPositive := false
 	for _, g := range gs {
 		if !isExecutant(g.Grantee) {
 			continue
 		}
 
 		if grants.PermissionsEqual(g.Permissions, &provider.ResourcePermissions{}) {
-			// resource is denied
-			return true
+			hasDeny = true
+		} else {
+			hasPositive = true
 		}
 	}
 
-	// no deny grants
-	return false
+	// Only deny if there are deny grants but no positive grants left
+	return hasDeny && !hasPositive
 }
 
 // ListGrantees lists the grantees of the current node
