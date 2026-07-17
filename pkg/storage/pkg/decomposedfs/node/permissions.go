@@ -29,6 +29,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/errtypes"
 	"github.com/opencloud-eu/reva/v2/pkg/utils"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 )
 
 // PermissionFunc should return true when the user has permission to access the node
@@ -248,8 +249,7 @@ func isPermissionsEmpty(p *provider.ResourcePermissions) bool {
 	if p == nil {
 		return true
 	}
-	empty := &provider.ResourcePermissions{}
-	return *p == *empty
+	return proto.Equal(p, &provider.ResourcePermissions{})
 }
 
 // userHasSubspaceGrant checks if the user has a grant in any subspace of the space.

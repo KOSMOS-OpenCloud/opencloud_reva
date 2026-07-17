@@ -612,6 +612,21 @@ func (s *service) ListReceivedShares(ctx context.Context, req *collaboration.Lis
 
 	var uid userpb.UserId
 	_ = utils.ReadJSONFromOpaque(req.Opaque, "userid", &uid)
+
+	// Pass subspace root IDs through context so the share manager can
+	// treat them as space roots when filtering with TYPE_SPACE_ROOT.
+	if ids := utils.ReadPlainFromOpaque(req.Opaque, "subspace_root_ids"); ids != "" {
+		idMap := make(map[string]bool)
+		for _, id := range strings.Split(ids, ",") {
+			if id != "" {
+				idMap[id] = true
+			}
+		}
+		if len(idMap) > 0 {
+			ctx = share.ContextWithSubspaceRootIDs(ctx, idMap)
+		}
+	}
+
 	shares, err := s.sm.ListReceivedShares(ctx, req.Filters, &uid) // TODO(labkode): check what to update
 	if err != nil {
 		return &collaboration.ListReceivedSharesResponse{

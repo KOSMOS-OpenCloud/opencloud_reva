@@ -650,7 +650,8 @@ func (fs *Decomposedfs) UpdateStorageSpace(ctx context.Context, req *provider.Up
 
 	}
 
-	if !restore && len(metadata) == 0 && !permissions.IsViewer(sp) {
+	hasSubspaceOp := space.Opaque != nil && (utils.ReadPlainFromOpaque(space.Opaque, "subspace.add") != "" || utils.ReadPlainFromOpaque(space.Opaque, "subspace.remove") != "")
+	if !restore && !hasSubspaceOp && len(metadata) == 0 && !permissions.IsViewer(sp) {
 		// you may land here when making an update request without changes
 		// check if user has access to the drive before continuing
 		return &provider.UpdateStorageSpaceResponse{
@@ -695,6 +696,41 @@ func (fs *Decomposedfs) UpdateStorageSpace(ctx context.Context, req *provider.Up
 			}, nil
 		}
 	}
+	// Handle subspace operations (requires manager permission)
+	if space.Opaque != nil {
+		if addEntry := utils.ReadPlainFromOpaque(space.Opaque, "subspace.add"); addEntry != "" {
+			if !permissions.IsManager(sp) {
+				return &provider.UpdateStorageSpaceResponse{
+					Status: &v1beta11.Status{Code: v1beta11.Code_CODE_PERMISSION_DENIED, Message: "only managers can manage subspaces"},
+				}, nil
+			}
+			// Format: "nodeID:relative/path"
+			parts := strings.SplitN(addEntry, ":", 2)
+			if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+				return &provider.UpdateStorageSpaceResponse{
+					Status: &v1beta11.Status{Code: v1beta11.Code_CODE_INVALID_ARGUMENT, Message: "subspace.add must be nodeID:path"},
+				}, nil
+			}
+			if err := node.AddSubspace(ctx, spaceNode, parts[0], parts[1]); err != nil {
+				return &provider.UpdateStorageSpaceResponse{
+					Status: &v1beta11.Status{Code: v1beta11.Code_CODE_INTERNAL, Message: err.Error()},
+				}, nil
+			}
+		}
+		if removeID := utils.ReadPlainFromOpaque(space.Opaque, "subspace.remove"); removeID != "" {
+			if !permissions.IsManager(sp) {
+				return &provider.UpdateStorageSpaceResponse{
+					Status: &v1beta11.Status{Code: v1beta11.Code_CODE_PERMISSION_DENIED, Message: "only managers can manage subspaces"},
+				}, nil
+			}
+			if err := node.RemoveSubspace(ctx, spaceNode, removeID); err != nil {
+				return &provider.UpdateStorageSpaceResponse{
+					Status: &v1beta11.Status{Code: v1beta11.Code_CODE_INTERNAL, Message: err.Error()},
+				}, nil
+			}
+		}
+	}
+
 	metadata[prefixes.TreeMTimeAttr] = []byte(time.Now().UTC().Format(time.RFC3339Nano))
 
 	err = spaceNode.SetXattrsWithContext(ctx, metadata, true)
@@ -1021,22 +1057,35 @@ func (fs *Decomposedfs) StorageSpaceFromNode(ctx context.Context, n *node.Node, 
 	if err != nil {
 		return nil, err
 	}
+	opaqueMap := map[string]*types.OpaqueEntry{
+		"grants": {
+			Decoder: "json",
+			Value:   grantMapJSON,
+		},
+		"grants_expirations": {
+			Decoder: "json",
+			Value:   grantExpirationMapJSON,
+		},
+		"groups": {
+			Decoder: "json",
+			Value:   groupMapJSON,
+		},
+	}
+
+	// Include subspace list if present
+	if subspaces := node.GetSubspaceList(ctx, n.SpaceRoot); len(subspaces) > 0 {
+		subspacesJSON, err := json.Marshal(subspaces)
+		if err == nil {
+			opaqueMap["subspaces"] = &types.OpaqueEntry{
+				Decoder: "json",
+				Value:   subspacesJSON,
+			}
+		}
+	}
+
 	space := &provider.StorageSpace{
 		Opaque: &types.Opaque{
-			Map: map[string]*types.OpaqueEntry{
-				"grants": {
-					Decoder: "json",
-					Value:   grantMapJSON,
-				},
-				"grants_expirations": {
-					Decoder: "json",
-					Value:   grantExpirationMapJSON,
-				},
-				"groups": {
-					Decoder: "json",
-					Value:   groupMapJSON,
-				},
-			},
+			Map: opaqueMap,
 		},
 		Id: &provider.StorageSpaceId{OpaqueId: ssID},
 		Root: &provider.ResourceId{

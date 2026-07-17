@@ -31,6 +31,29 @@ import (
 	"google.golang.org/genproto/protobuf/field_mask"
 )
 
+// field_mask is used in Manager/ReceivedShareManager interfaces below.
+var _ *field_mask.FieldMask
+
+// subspaceRootIDsKey is a context key for passing subspace root node IDs
+// into the share filter. When set, TYPE_SPACE_ROOT filters also exclude
+// shares on subspace roots.
+type subspaceRootIDsKeyType struct{}
+
+var subspaceRootIDsKey = subspaceRootIDsKeyType{}
+
+// ContextWithSubspaceRootIDs stores subspace root node IDs in the context.
+// Shares on these node IDs will be treated like space root shares by the
+// TYPE_SPACE_ROOT filter.
+func ContextWithSubspaceRootIDs(ctx context.Context, ids map[string]bool) context.Context {
+	return context.WithValue(ctx, subspaceRootIDsKey, ids)
+}
+
+// SubspaceRootIDsFromContext retrieves the subspace root node IDs from the context.
+func SubspaceRootIDsFromContext(ctx context.Context) map[string]bool {
+	ids, _ := ctx.Value(subspaceRootIDsKey).(map[string]bool)
+	return ids
+}
+
 const (
 	// NoState can be used to signal the filter matching functions to ignore the share state.
 	NoState collaboration.ShareState = -1
@@ -169,8 +192,29 @@ func IsGrantedToUser(share *collaboration.Share, user *userv1beta1.User) bool {
 	return false
 }
 
+// FilterTypeSubspaceRoot is a custom filter type for subspace root shares.
+// Not in upstream CS3 proto — we use a high value to avoid conflicts.
+const FilterTypeSubspaceRoot collaboration.Filter_Type = 100
+
+// SubspaceRootFilter creates a filter for subspace root shares.
+// When subspaceRoot is false, shares on subspace roots are excluded.
+// Requires subspace root IDs to be set in the context via ContextWithSubspaceRootIDs.
+func SubspaceRootFilter(subspaceRoot bool) *collaboration.Filter {
+	return &collaboration.Filter{
+		Type: FilterTypeSubspaceRoot,
+		Term: &collaboration.Filter_SpaceRoot{
+			SpaceRoot: subspaceRoot,
+		},
+	}
+}
+
 // MatchesFilter tests if the share passes the filter.
 func MatchesFilter(share *collaboration.Share, state collaboration.ShareState, filter *collaboration.Filter) bool {
+	return matchesFilter(share, state, filter, nil)
+}
+
+// matchesFilter is the internal implementation that optionally checks subspace root IDs.
+func matchesFilter(share *collaboration.Share, state collaboration.ShareState, filter *collaboration.Filter, subspaceRootIDs map[string]bool) bool {
 	switch filter.Type {
 	case collaboration.Filter_TYPE_RESOURCE_ID:
 		return utils.ResourceIDEqual(share.ResourceId, filter.GetResourceId())
@@ -187,6 +231,9 @@ func MatchesFilter(share *collaboration.Share, state collaboration.ShareState, f
 	case collaboration.Filter_TYPE_SPACE_ROOT:
 		isSpaceRoot := share.ResourceId.SpaceId == share.ResourceId.OpaqueId
 		return isSpaceRoot == filter.GetSpaceRoot()
+	case FilterTypeSubspaceRoot:
+		isSubspaceRoot := len(subspaceRootIDs) > 0 && subspaceRootIDs[share.ResourceId.OpaqueId]
+		return isSubspaceRoot == filter.GetSpaceRoot()
 	default:
 		return false
 	}
@@ -194,8 +241,12 @@ func MatchesFilter(share *collaboration.Share, state collaboration.ShareState, f
 
 // MatchesAnyFilter checks if the share passes at least one of the given filters.
 func MatchesAnyFilter(share *collaboration.Share, state collaboration.ShareState, filters []*collaboration.Filter) bool {
+	return matchesAnyFilter(share, state, filters, nil)
+}
+
+func matchesAnyFilter(share *collaboration.Share, state collaboration.ShareState, filters []*collaboration.Filter, subspaceRootIDs map[string]bool) bool {
 	for _, f := range filters {
-		if MatchesFilter(share, state, f) {
+		if matchesFilter(share, state, f, subspaceRootIDs) {
 			return true
 		}
 	}
@@ -212,7 +263,7 @@ func MatchesFilters(share *collaboration.Share, filters []*collaboration.Filter)
 	}
 	grouped := GroupFiltersByType(filters)
 	for _, f := range grouped {
-		if !MatchesAnyFilter(share, NoState, f) {
+		if !matchesAnyFilter(share, NoState, f, nil) {
 			return false
 		}
 	}
@@ -225,12 +276,18 @@ func MatchesFilters(share *collaboration.Share, filters []*collaboration.Filter)
 // Here is an example:
 // (resource_id=1 OR resource_id=2) AND (grantee_type=USER OR grantee_type=GROUP)
 func MatchesFiltersWithState(share *collaboration.Share, state collaboration.ShareState, filters []*collaboration.Filter) bool {
+	return MatchesFiltersWithStateAndSubspaces(share, state, filters, nil)
+}
+
+// MatchesFiltersWithStateAndSubspaces is like MatchesFiltersWithState but also
+// treats the given subspace root node IDs as space roots for TYPE_SPACE_ROOT filters.
+func MatchesFiltersWithStateAndSubspaces(share *collaboration.Share, state collaboration.ShareState, filters []*collaboration.Filter, subspaceRootIDs map[string]bool) bool {
 	if len(filters) == 0 {
 		return true
 	}
 	grouped := GroupFiltersByType(filters)
 	for _, f := range grouped {
-		if !MatchesAnyFilter(share, state, f) {
+		if !matchesAnyFilter(share, state, f, subspaceRootIDs) {
 			return false
 		}
 	}
