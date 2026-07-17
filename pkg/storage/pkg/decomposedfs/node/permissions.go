@@ -224,7 +224,7 @@ func (p *Permissions) assemblePermissions(ctx context.Context, n *Node, failOnTr
 	// member, no grants on this path) but IS a member of a subspace in this
 	// space, grant listing so they can navigate to their subspace.
 	if isPermissionsEmpty(ap) && len(subspaces) > 0 {
-		if userHasSubspaceGrant(ctx, rn, subspaces, u) {
+		if p.userHasSubspaceGrant(ctx, rn, subspaces, u) {
 			AddPermissions(ap, &provider.ResourcePermissions{
 				Stat:          true,
 				GetPath:       true,
@@ -254,18 +254,15 @@ func isPermissionsEmpty(p *provider.ResourcePermissions) bool {
 
 // userHasSubspaceGrant checks if the user has a grant in any subspace of the space.
 // Called only when the user has no permissions from the normal walk (not a space member).
-func userHasSubspaceGrant(ctx context.Context, spaceRoot *Node, subspaces []SubspaceEntry, u *userpb.User) bool {
+func (p *Permissions) userHasSubspaceGrant(ctx context.Context, spaceRoot *Node, subspaces []SubspaceEntry, u *userpb.User) bool {
 	for _, ss := range subspaces {
-		// We need to check if the user has grants on the subspace node.
-		// Since we can't easily load arbitrary nodes here without the full
-		// lookup infrastructure, we check if the subspace node's grants
-		// include this user by reading the space root's child.
-		// For now, we assume that if subspaces exist and the user got here
-		// (they were authenticated and routed to this space), they likely
-		// have a grant somewhere. A full implementation would walk the
-		// subspace nodes and call ReadUserPermissions on each.
-		_ = ss
-		return true // TODO: implement proper grant check per subspace node
+		subNode, err := ReadNode(ctx, p.lu, spaceRoot.SpaceID, ss.ID, "", false, spaceRoot, true)
+		if err != nil || subNode == nil || !subNode.Exists {
+			continue
+		}
+		if np, denied, err := subNode.ReadUserPermissions(ctx, u); err == nil && !denied && !isPermissionsEmpty(np) {
+			return true
+		}
 	}
 	return false
 }
