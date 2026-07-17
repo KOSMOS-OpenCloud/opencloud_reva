@@ -182,6 +182,105 @@ func TestSpaceRootFilter(t *testing.T) {
 	}
 }
 
+func TestSubspaceRootFilter(t *testing.T) {
+	// A subspace root share: SpaceId != OpaqueId, but OpaqueId is in subspace list
+	subspaceShare := &collaboration.Share{
+		ResourceId: &provider.ResourceId{
+			StorageId: "storage",
+			SpaceId:   "spaceid",
+			OpaqueId:  "subspace-node-1",
+		},
+	}
+
+	// A regular file share: not in subspace list
+	regularShare := &collaboration.Share{
+		ResourceId: &provider.ResourceId{
+			StorageId: "storage",
+			SpaceId:   "spaceid",
+			OpaqueId:  "regular-node",
+		},
+	}
+
+	subspaceIDs := map[string]bool{
+		"subspace-node-1": true,
+		"subspace-node-2": true,
+	}
+
+	tests := []struct {
+		name        string
+		share       *collaboration.Share
+		filterValue bool
+		subspaceIDs map[string]bool
+		want        bool
+	}{
+		// SubspaceRootFilter(false) should exclude subspace shares
+		{"subspace share excluded by SubspaceRootFilter(false)", subspaceShare, false, subspaceIDs, false},
+		// SubspaceRootFilter(true) should include only subspace shares
+		{"subspace share included by SubspaceRootFilter(true)", subspaceShare, true, subspaceIDs, true},
+		// Regular share passes SubspaceRootFilter(false)
+		{"regular share passes SubspaceRootFilter(false)", regularShare, false, subspaceIDs, true},
+		// Regular share does not pass SubspaceRootFilter(true)
+		{"regular share excluded by SubspaceRootFilter(true)", regularShare, true, subspaceIDs, false},
+		// Without subspace IDs, all shares pass SubspaceRootFilter(false)
+		{"no subspace IDs: all pass SubspaceRootFilter(false)", subspaceShare, false, nil, true},
+		// Without subspace IDs, no shares match SubspaceRootFilter(true)
+		{"no subspace IDs: none match SubspaceRootFilter(true)", subspaceShare, true, nil, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			filter := SubspaceRootFilter(tc.filterValue)
+			got := matchesFilter(tc.share, NoState, filter, tc.subspaceIDs)
+			if got != tc.want {
+				t.Errorf("matchesFilter() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMatchesFiltersWithStateAndSubspaces(t *testing.T) {
+	subspaceShare := &collaboration.Share{
+		ResourceId: &provider.ResourceId{SpaceId: "s1", OpaqueId: "sub1"},
+		Grantee:    &provider.Grantee{Type: provider.GranteeType_GRANTEE_TYPE_USER},
+		Permissions: &collaboration.SharePermissions{
+			Permissions: &provider.ResourcePermissions{Stat: true},
+		},
+	}
+
+	regularShare := &collaboration.Share{
+		ResourceId: &provider.ResourceId{SpaceId: "s1", OpaqueId: "regular"},
+		Grantee:    &provider.Grantee{Type: provider.GranteeType_GRANTEE_TYPE_USER},
+		Permissions: &collaboration.SharePermissions{
+			Permissions: &provider.ResourcePermissions{Stat: true},
+		},
+	}
+
+	subspaceIDs := map[string]bool{"sub1": true}
+
+	filters := []*collaboration.Filter{
+		SpaceRootFilter(false),
+		SubspaceRootFilter(false),
+	}
+
+	// Regular share should pass both filters
+	if !MatchesFiltersWithStateAndSubspaces(regularShare, NoState, filters, subspaceIDs) {
+		t.Error("Regular share should pass SpaceRootFilter(false) AND SubspaceRootFilter(false)")
+	}
+
+	// Subspace share should be filtered out by SubspaceRootFilter(false)
+	if MatchesFiltersWithStateAndSubspaces(subspaceShare, NoState, filters, subspaceIDs) {
+		t.Error("Subspace share should NOT pass SubspaceRootFilter(false)")
+	}
+
+	// Without SubspaceRootFilter, subspace share passes
+	filtersNoSubspace := []*collaboration.Filter{
+		SpaceRootFilter(false),
+	}
+	if !MatchesFiltersWithStateAndSubspaces(subspaceShare, NoState, filtersNoSubspace, subspaceIDs) {
+		t.Error("Subspace share should pass when no SubspaceRootFilter is set")
+	}
+}
+
 func TestMatchesAnyFilter(t *testing.T) {
 	id := &provider.ResourceId{StorageId: "storage", OpaqueId: "opaque"}
 	share := &collaboration.Share{
