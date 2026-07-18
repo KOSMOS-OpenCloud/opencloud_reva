@@ -177,4 +177,116 @@ var _ = Describe("Subspace nested permissions", func() {
 			Expect(ap.InitiateFileDownload).To(BeFalse())
 		})
 	})
+
+	// File-level tests: verify that permissions on files inside subspaces
+	// are correctly bounded by the nearest subspace.
+	//
+	//   x3/m3.pdf        ← inside subspace x3 (above x5)
+	//   x3/x5/m5.pdf     ← inside subspace x5 (above x6)
+	//   x3/x5/x6/x6.pdf  ← inside subspace x6
+	Describe("Files inside nested subspaces", func() {
+		var (
+			m3Node  *node.Node // file in x3 (above x5)
+			m5Node  *node.Node // file in x5 (above x6)
+			x6fNode *node.Node // file in x6
+		)
+
+		BeforeEach(func() {
+			var err error
+			// Create files via TouchFile
+			Expect(env.Fs.TouchFile(env.Ctx, &provider.Reference{ResourceId: env.SpaceRootRes, Path: "./x3/m3.pdf"}, false, "")).To(Succeed())
+			Expect(env.Fs.TouchFile(env.Ctx, &provider.Reference{ResourceId: env.SpaceRootRes, Path: "./x3/x5/m5.pdf"}, false, "")).To(Succeed())
+			Expect(env.Fs.TouchFile(env.Ctx, &provider.Reference{ResourceId: env.SpaceRootRes, Path: "./x3/x5/x6/x6.pdf"}, false, "")).To(Succeed())
+
+			m3Node, err = env.Lookup.NodeFromResource(env.Ctx, &provider.Reference{ResourceId: env.SpaceRootRes, Path: "./x3/m3.pdf"})
+			Expect(err).ToNot(HaveOccurred())
+			m5Node, err = env.Lookup.NodeFromResource(env.Ctx, &provider.Reference{ResourceId: env.SpaceRootRes, Path: "./x3/x5/m5.pdf"})
+			Expect(err).ToNot(HaveOccurred())
+			x6fNode, err = env.Lookup.NodeFromResource(env.Ctx, &provider.Reference{ResourceId: env.SpaceRootRes, Path: "./x3/x5/x6/x6.pdf"})
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		Describe("O0 (space owner)", func() {
+			It("can read+write all files", func() {
+				for _, n := range []*node.Node{m3Node, m5Node, x6fNode} {
+					ap := assembleFor(env.Owner, n)
+					Expect(ap.Stat).To(BeTrue())
+					Expect(ap.InitiateFileDownload).To(BeTrue())
+					Expect(ap.InitiateFileUpload).To(BeTrue())
+				}
+			})
+		})
+
+		Describe("O3 (editor on x3)", func() {
+			It("can list, read, and write m3.pdf", func() {
+				ap := assembleFor(userO3, m3Node)
+				Expect(ap.Stat).To(BeTrue())
+				Expect(ap.InitiateFileDownload).To(BeTrue())
+				Expect(ap.InitiateFileUpload).To(BeTrue())
+			})
+			It("CANNOT read m5.pdf (blocked by subspace x5)", func() {
+				ap := assembleFor(userO3, m5Node)
+				Expect(ap.InitiateFileDownload).To(BeFalse())
+				Expect(ap.InitiateFileUpload).To(BeFalse())
+			})
+			It("CANNOT read x6.pdf (blocked by subspace x5/x6)", func() {
+				ap := assembleFor(userO3, x6fNode)
+				Expect(ap.InitiateFileDownload).To(BeFalse())
+				Expect(ap.InitiateFileUpload).To(BeFalse())
+			})
+		})
+
+		Describe("O5 (editor on x5)", func() {
+			It("CANNOT read m3.pdf (outside x5, in sibling subspace x3)", func() {
+				ap := assembleFor(userO5, m3Node)
+				Expect(ap.InitiateFileDownload).To(BeFalse())
+			})
+			It("can list, read, and write m5.pdf", func() {
+				ap := assembleFor(userO5, m5Node)
+				Expect(ap.Stat).To(BeTrue())
+				Expect(ap.InitiateFileDownload).To(BeTrue())
+				Expect(ap.InitiateFileUpload).To(BeTrue())
+			})
+			It("CANNOT read x6.pdf (blocked by subspace x6)", func() {
+				ap := assembleFor(userO5, x6fNode)
+				Expect(ap.InitiateFileDownload).To(BeFalse())
+			})
+		})
+
+		Describe("O6 (editor on x6)", func() {
+			It("CANNOT read m3.pdf", func() {
+				ap := assembleFor(userO6, m3Node)
+				Expect(ap.InitiateFileDownload).To(BeFalse())
+			})
+			It("CANNOT read m5.pdf", func() {
+				ap := assembleFor(userO6, m5Node)
+				Expect(ap.InitiateFileDownload).To(BeFalse())
+			})
+			It("can list, read, and write x6.pdf", func() {
+				ap := assembleFor(userO6, x6fNode)
+				Expect(ap.Stat).To(BeTrue())
+				Expect(ap.InitiateFileDownload).To(BeTrue())
+				Expect(ap.InitiateFileUpload).To(BeTrue())
+			})
+		})
+
+		Describe("Navigation grants for file access", func() {
+			It("O3 can still stat x5 folder (navigation grant)", func() {
+				ap := assembleFor(userO3, x5Node)
+				Expect(ap.Stat).To(BeTrue())
+				Expect(ap.ListContainer).To(BeTrue())
+			})
+			It("O6 can stat x3 and x5 (navigation grants to reach x6)", func() {
+				ap := assembleFor(userO6, x3Node)
+				Expect(ap.Stat).To(BeTrue())
+				Expect(ap.ListContainer).To(BeTrue())
+				Expect(ap.InitiateFileDownload).To(BeFalse())
+
+				ap = assembleFor(userO6, x5Node)
+				Expect(ap.Stat).To(BeTrue())
+				Expect(ap.ListContainer).To(BeTrue())
+				Expect(ap.InitiateFileDownload).To(BeFalse())
+			})
+		})
+	})
 })
