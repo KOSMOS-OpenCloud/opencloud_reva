@@ -159,6 +159,12 @@ func (p *Permissions) assemblePermissions(ctx context.Context, n *Node, failOnTr
 		n.ID = kp[0]
 	}
 
+	// check if the current user is the owner — owners always have full access,
+	// regardless of subspaces or grants
+	if utils.UserIDEqual(u.Id, n.Owner()) {
+		return OwnerPermissions(), nil
+	}
+
 	// determine root
 	rn := n.SpaceRoot
 	cn := n
@@ -231,11 +237,6 @@ func (p *Permissions) assemblePermissions(ctx context.Context, n *Node, failOnTr
 				ListContainer: true,
 			})
 		}
-	}
-
-	// check if the current user is the owner
-	if utils.UserIDEqual(u.Id, n.Owner()) {
-		return OwnerPermissions(), nil
 	}
 
 	appctx.GetLogger(ctx).Debug().Interface("permissions", ap).Str("spaceid", n.SpaceID).Str("nodeid", n.ID).Interface("user", u).Msg("returning agregated permissions")
