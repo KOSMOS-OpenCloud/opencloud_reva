@@ -170,6 +170,16 @@ func (p *Permissions) assemblePermissions(ctx context.Context, n *Node, failOnTr
 	cn := n
 	ap = &provider.ResourcePermissions{}
 
+	// For project spaces the owner has type SPACE_OWNER (synthetic, no real user).
+	// Space managers must bypass subspace boundaries just like owners — otherwise
+	// they lose access to subspace contents, which breaks management operations.
+	if n.Owner() != nil && n.Owner().Type == userpb.UserType_USER_TYPE_SPACE_OWNER {
+		if rp, _, err := rn.ReadUserPermissions(ctx, u); err == nil && rp.AddGrant {
+			// AddGrant is only set for managers — grant full access
+			return OwnerPermissions(), nil
+		}
+	}
+
 	// load subspace list (cached, empty = no subspaces = zero overhead)
 	subspaces := GetSubspaceList(ctx, rn)
 
