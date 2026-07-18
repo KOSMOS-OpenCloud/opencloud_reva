@@ -137,11 +137,9 @@ func (fs *Decomposedfs) AddGrant(ctx context.Context, ref *provider.Reference, g
 		return err
 	}
 
-	// Auto-register as subspace: if this is a share grant on a non-root folder
-	// in a project space, the folder becomes a subspace automatically.
-	if isShareGrant(ctx) {
-		fs.autoAddSubspace(ctx, grantNode)
-	}
+	// Auto-register as subspace when a grant is added to a non-root folder
+	// in a project space.
+	fs.autoAddSubspace(ctx, grantNode)
 	return nil
 }
 
@@ -256,11 +254,8 @@ func (fs *Decomposedfs) RemoveGrant(ctx context.Context, ref *provider.Reference
 		}
 	}
 
-	// Auto-remove subspace: if this was the last share grant on this folder,
-	// it stops being a subspace.
-	if isShareGrant(ctx) {
-		fs.autoRemoveSubspace(ctx, grantNode)
-	}
+	// Auto-remove subspace when last grant is removed from a folder.
+	fs.autoRemoveSubspace(ctx, grantNode)
 
 	return fs.tp.Propagate(ctx, grantNode, 0)
 }
