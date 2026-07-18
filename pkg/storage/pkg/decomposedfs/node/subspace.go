@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/opencloud-eu/reva/v2/pkg/appctx"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata/prefixes"
 )
@@ -16,19 +18,31 @@ type SubspaceEntry struct {
 	Path string `json:"path"`
 }
 
+const subspaceCacheTTL = 5 * time.Minute
+
+type subspaceCacheEntry struct {
+	entries []SubspaceEntry
+	expires time.Time
+}
+
 // subspaceCache caches the subspace list per space root to avoid repeated xattr reads.
 var (
 	subspaceCacheMu sync.RWMutex
-	subspaceCache   = map[string][]SubspaceEntry{} // spaceID → entries
+	subspaceCache   = map[string]subspaceCacheEntry{} // spaceID → entries+expiry
+
+	// subspaceMutateMu serialises Add/RemoveSubspace to prevent TOCTOU races.
+	subspaceMutateMu sync.Mutex
 )
 
 // GetSubspaceList returns the subspace entries for the given space root node.
-// Results are cached in memory.
+// Results are cached in memory with a TTL.
 func GetSubspaceList(ctx context.Context, spaceRoot *Node) []SubspaceEntry {
+	now := time.Now()
+
 	subspaceCacheMu.RLock()
-	if entries, ok := subspaceCache[spaceRoot.SpaceID]; ok {
+	if cached, ok := subspaceCache[spaceRoot.SpaceID]; ok && now.Before(cached.expires) {
 		subspaceCacheMu.RUnlock()
-		return entries
+		return cached.entries
 	}
 	subspaceCacheMu.RUnlock()
 
@@ -39,11 +53,15 @@ func GetSubspaceList(ctx context.Context, spaceRoot *Node) []SubspaceEntry {
 
 	var entries []SubspaceEntry
 	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+		appctx.GetLogger(ctx).Error().Err(err).
+			Str("spaceid", spaceRoot.SpaceID).
+			Str("raw", raw).
+			Msg("subspace: failed to parse subspace list from xattr — all subspace boundaries inactive for this space")
 		return nil
 	}
 
 	subspaceCacheMu.Lock()
-	subspaceCache[spaceRoot.SpaceID] = entries
+	subspaceCache[spaceRoot.SpaceID] = subspaceCacheEntry{entries: entries, expires: now.Add(subspaceCacheTTL)}
 	subspaceCacheMu.Unlock()
 
 	return entries
@@ -53,6 +71,13 @@ func GetSubspaceList(ctx context.Context, spaceRoot *Node) []SubspaceEntry {
 func InvalidateSubspaceCache(spaceID string) {
 	subspaceCacheMu.Lock()
 	delete(subspaceCache, spaceID)
+	subspaceCacheMu.Unlock()
+}
+
+// InvalidateAllSubspaceCaches clears the entire cache (e.g. for testing).
+func InvalidateAllSubspaceCaches() {
+	subspaceCacheMu.Lock()
+	subspaceCache = map[string]subspaceCacheEntry{}
 	subspaceCacheMu.Unlock()
 }
 
@@ -67,7 +92,13 @@ func SetSubspaceList(ctx context.Context, spaceRoot *Node, entries []SubspaceEnt
 }
 
 // AddSubspace adds a node as subspace. Path is relative to space root.
+// Serialised via subspaceMutateMu to prevent TOCTOU races.
 func AddSubspace(ctx context.Context, spaceRoot *Node, nodeID, path string) error {
+	subspaceMutateMu.Lock()
+	defer subspaceMutateMu.Unlock()
+
+	// Invalidate cache to force a fresh read from xattr.
+	InvalidateSubspaceCache(spaceRoot.SpaceID)
 	entries := GetSubspaceList(ctx, spaceRoot)
 	for _, e := range entries {
 		if e.ID == nodeID {
@@ -79,7 +110,13 @@ func AddSubspace(ctx context.Context, spaceRoot *Node, nodeID, path string) erro
 }
 
 // RemoveSubspace removes a node from the subspace list.
+// Serialised via subspaceMutateMu to prevent TOCTOU races.
 func RemoveSubspace(ctx context.Context, spaceRoot *Node, nodeID string) error {
+	subspaceMutateMu.Lock()
+	defer subspaceMutateMu.Unlock()
+
+	// Invalidate cache to force a fresh read from xattr.
+	InvalidateSubspaceCache(spaceRoot.SpaceID)
 	entries := GetSubspaceList(ctx, spaceRoot)
 	filtered := make([]SubspaceEntry, 0, len(entries))
 	for _, e := range entries {
