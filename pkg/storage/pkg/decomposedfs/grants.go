@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	"github.com/opencloud-eu/reva/v2/internal/grpc/services/storageprovider"
 	"github.com/opencloud-eu/reva/v2/pkg/appctx"
@@ -132,7 +133,16 @@ func (fs *Decomposedfs) AddGrant(ctx context.Context, ref *provider.Reference, g
 		}
 	}
 
-	return fs.storeGrant(ctx, grantNode, g)
+	if err := fs.storeGrant(ctx, grantNode, g); err != nil {
+		return err
+	}
+
+	// Auto-register as subspace: if this is a share grant on a non-root folder
+	// in a project space, the folder becomes a subspace automatically.
+	if isShareGrant(ctx) {
+		fs.autoAddSubspace(ctx, grantNode)
+	}
+	return nil
 }
 
 // ListGrants lists the grants on the specified resource
@@ -244,6 +254,12 @@ func (fs *Decomposedfs) RemoveGrant(ctx context.Context, ref *provider.Reference
 				return err
 			}
 		}
+	}
+
+	// Auto-remove subspace: if this was the last share grant on this folder,
+	// it stops being a subspace.
+	if isShareGrant(ctx) {
+		fs.autoRemoveSubspace(ctx, grantNode)
 	}
 
 	return fs.tp.Propagate(ctx, grantNode, 0)
@@ -362,4 +378,55 @@ func (fs *Decomposedfs) storeGrant(ctx context.Context, n *node.Node, g *provide
 	}
 
 	return fs.tp.Propagate(ctx, n, 0)
+}
+
+// autoAddSubspace registers a folder as subspace when it receives its first
+// share grant in a project space. This keeps the subspace list consistent
+// without relying on the UI to call SetSubspace separately.
+func (fs *Decomposedfs) autoAddSubspace(ctx context.Context, n *node.Node) {
+	// Only for non-root nodes in project spaces (SPACE_OWNER type)
+	if n.ID == n.SpaceRoot.ID {
+		return
+	}
+	owner := n.Owner()
+	if owner == nil || owner.Type != userpb.UserType_USER_TYPE_SPACE_OWNER {
+		return
+	}
+	// Already a subspace?
+	if node.IsSubspaceID(n.ID, node.GetSubspaceList(ctx, n.SpaceRoot)) {
+		return
+	}
+	// Determine path relative to space root
+	p, err := fs.lu.Path(ctx, n, func(_ *node.Node) bool { return true })
+	if err != nil {
+		appctx.GetLogger(ctx).Warn().Err(err).Str("nodeid", n.ID).Msg("autoAddSubspace: could not determine path")
+		return
+	}
+	if err := node.AddSubspace(ctx, n.SpaceRoot, n.ID, p); err != nil {
+		appctx.GetLogger(ctx).Warn().Err(err).Str("nodeid", n.ID).Msg("autoAddSubspace: failed")
+	}
+}
+
+// autoRemoveSubspace removes a folder from the subspace list when its last
+// share grant is removed.
+func (fs *Decomposedfs) autoRemoveSubspace(ctx context.Context, n *node.Node) {
+	if n.ID == n.SpaceRoot.ID {
+		return
+	}
+	// Only act if this node is currently a subspace
+	if !node.IsSubspaceID(n.ID, node.GetSubspaceList(ctx, n.SpaceRoot)) {
+		return
+	}
+	// Check if any grants remain
+	grantees, err := n.ListGrantees(ctx)
+	if err != nil {
+		appctx.GetLogger(ctx).Warn().Err(err).Str("nodeid", n.ID).Msg("autoRemoveSubspace: could not list grantees")
+		return
+	}
+	if len(grantees) > 0 {
+		return // still has members
+	}
+	if err := node.RemoveSubspace(ctx, n.SpaceRoot, n.ID); err != nil {
+		appctx.GetLogger(ctx).Warn().Err(err).Str("nodeid", n.ID).Msg("autoRemoveSubspace: failed")
+	}
 }
