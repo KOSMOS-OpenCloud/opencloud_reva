@@ -139,6 +139,7 @@ func (fs *Decomposedfs) AddGrant(ctx context.Context, ref *provider.Reference, g
 
 	// Auto-register as subspace when a grant is added to a non-root folder
 	// in a project space.
+	appctx.GetLogger(ctx).Info().Str("nodeid", grantNode.ID).Str("spaceid", grantNode.SpaceID).Msg("AddGrant: calling autoAddSubspace")
 	fs.autoAddSubspace(ctx, grantNode)
 	return nil
 }
@@ -379,16 +380,24 @@ func (fs *Decomposedfs) storeGrant(ctx context.Context, n *node.Node, g *provide
 // share grant in a project space. This keeps the subspace list consistent
 // without relying on the UI to call SetSubspace separately.
 func (fs *Decomposedfs) autoAddSubspace(ctx context.Context, n *node.Node) {
+	log := appctx.GetLogger(ctx)
 	// Only for non-root nodes in project spaces (SPACE_OWNER type)
 	if n.ID == n.SpaceRoot.ID {
+		log.Info().Str("nodeid", n.ID).Msg("autoAddSubspace: skip (is space root)")
 		return
 	}
 	owner := n.Owner()
 	if owner == nil || owner.Type != userpb.UserType_USER_TYPE_SPACE_OWNER {
+		ownerType := int32(-1)
+		if owner != nil {
+			ownerType = int32(owner.Type)
+		}
+		log.Info().Str("nodeid", n.ID).Int32("ownerType", ownerType).Msg("autoAddSubspace: skip (not project space)")
 		return
 	}
 	// Already a subspace?
 	if node.IsSubspaceID(n.ID, node.GetSubspaceList(ctx, n.SpaceRoot)) {
+		log.Info().Str("nodeid", n.ID).Msg("autoAddSubspace: skip (already subspace)")
 		return
 	}
 	// Determine path relative to space root
@@ -399,6 +408,8 @@ func (fs *Decomposedfs) autoAddSubspace(ctx context.Context, n *node.Node) {
 	}
 	if err := node.AddSubspace(ctx, n.SpaceRoot, n.ID, p); err != nil {
 		appctx.GetLogger(ctx).Warn().Err(err).Str("nodeid", n.ID).Msg("autoAddSubspace: failed")
+	} else {
+		appctx.GetLogger(ctx).Info().Str("nodeid", n.ID).Str("path", p).Msg("autoAddSubspace: registered")
 	}
 }
 
