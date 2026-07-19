@@ -20,6 +20,7 @@ package jsoncs3
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"time"
@@ -815,6 +816,8 @@ func (m *Manager) listCreatedShares(ctx context.Context, user *userv1beta1.User,
 	defer span.End()
 	sublog := appctx.GetLogger(ctx).With().Str("userid", user.GetId().GetOpaqueId()).Str("useridp", user.GetId().GetIdp()).Str("driver", "jsoncs3").Str("handler", "listCreatedShares").Logger()
 
+	subspaceResolver := m.newSubspaceResolver(ctx, filters)
+
 	list, err := m.CreatedCache.List(ctx, user.Id.OpaqueId)
 	if err != nil {
 		span.RecordError(err)
@@ -885,7 +888,7 @@ func (m *Manager) listCreatedShares(ctx context.Context, user *userv1beta1.User,
 						continue
 					}
 					if utils.UserEqual(user.GetId(), s.GetCreator()) {
-						if share.MatchesFilters(s, filters) {
+						if share.MatchesFiltersWithStateAndSubspaces(s, share.NoState, filters, subspaceResolver.resolve(storageID, spaceID)) {
 							select {
 							case results <- s:
 							case <-ctx.Done():
@@ -1014,6 +1017,9 @@ func (m *Manager) ListReceivedShares(ctx context.Context, filters []*collaborati
 		return nil
 	})
 
+	// Resolve subspace IDs for filtering
+	subspaceResolver := m.newSubspaceResolver(ctx, filters)
+
 	// Spawn workers that'll concurrently work the queue
 	for i := 0; i < numWorkers; i++ {
 		g.Go(func() error {
@@ -1058,7 +1064,7 @@ func (m *Manager) ListReceivedShares(ctx context.Context, filters []*collaborati
 					}
 
 					if share.IsGrantedToUser(s, user) {
-						if share.MatchesFiltersWithStateAndSubspaces(s, state.State, filters, share.SubspaceRootIDsFromContext(ctx)) {
+						if share.MatchesFiltersWithStateAndSubspaces(s, state.State, filters, subspaceResolver.resolve(storageID, spaceID)) {
 							rs := &collaboration.ReceivedShare{
 								Share:      s,
 								State:      state.State,
@@ -1380,4 +1386,78 @@ func (m *Manager) CleanupStaleShares(ctx context.Context) {
 
 		return true
 	})
+}
+
+// subspaceResolver lazily loads and caches subspace root IDs per space.
+// Used by ListShares and ListReceivedShares to filter subspace-root shares
+// without requiring the caller to pass subspace IDs explicitly.
+type subspaceResolver struct {
+	ctx     context.Context
+	gwPool  pool.Selectable[gatewayv1beta1.GatewayAPIClient]
+	active  bool
+	mu      sync.Mutex
+	cache   map[string]map[string]bool
+}
+
+func (m *Manager) newSubspaceResolver(ctx context.Context, filters []*collaboration.Filter) *subspaceResolver {
+	active := false
+	for _, f := range filters {
+		if f.GetType() == share.FilterTypeSubspaceRoot {
+			active = true
+			break
+		}
+	}
+	return &subspaceResolver{
+		ctx:    ctx,
+		gwPool: m.gatewaySelector,
+		active: active,
+		cache:  make(map[string]map[string]bool),
+	}
+}
+
+func (r *subspaceResolver) resolve(storageID, spaceID string) map[string]bool {
+	// First check context-provided IDs (backwards compat)
+	if ids := share.SubspaceRootIDsFromContext(r.ctx); len(ids) > 0 {
+		return ids
+	}
+	if !r.active {
+		return nil
+	}
+
+	key := storageID + "$" + spaceID
+	r.mu.Lock()
+	if ids, ok := r.cache[key]; ok {
+		r.mu.Unlock()
+		return ids
+	}
+	r.mu.Unlock()
+
+	ids := make(map[string]bool)
+	client, err := r.gwPool.Next()
+	if err == nil {
+		ref := &provider.Reference{ResourceId: &provider.ResourceId{
+			StorageId: storageID, SpaceId: spaceID, OpaqueId: spaceID,
+		}}
+		res, err := client.Stat(r.ctx, &provider.StatRequest{
+			Ref:       ref,
+			FieldMask: &fieldmaskpb.FieldMask{Paths: []string{"*"}},
+		})
+		if err == nil && res.GetStatus().GetCode() == rpcv1beta1.Code_CODE_OK {
+			if space := res.GetInfo().GetSpace(); space != nil {
+				if entry, ok := space.GetOpaque().GetMap()["subspaces"]; ok {
+					var entries []struct{ ID string `json:"id"` }
+					if json.Unmarshal(entry.Value, &entries) == nil {
+						for _, e := range entries {
+							ids[e.ID] = true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	r.mu.Lock()
+	r.cache[key] = ids
+	r.mu.Unlock()
+	return ids
 }
