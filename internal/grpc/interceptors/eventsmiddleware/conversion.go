@@ -416,6 +416,36 @@ func SpaceEnabled(r *provider.UpdateStorageSpaceResponse, req *provider.UpdateSt
 	}
 }
 
+// SubspaceMemberAdded converts the response to a subspace member added event
+func SubspaceMemberAdded(r *collaboration.CreateShareResponse, executant *user.User) events.SubspaceMemberAdded {
+	return events.SubspaceMemberAdded{
+		Executant:      executant.GetId(),
+		GranteeUserID:  r.Share.GetGrantee().GetUserId(),
+		GranteeGroupID: r.Share.GetGrantee().GetGroupId(),
+		ItemID:         r.Share.GetResourceId(),
+		ResourceName:   r.Share.GetResourceId().GetOpaqueId(),
+		CTime:          r.Share.GetCtime(),
+	}
+}
+
+// SubspaceMemberRemoved converts the response to a subspace member removed event
+func SubspaceMemberRemoved(r *collaboration.RemoveShareResponse, req *collaboration.RemoveShareRequest, executant *user.User) events.SubspaceMemberRemoved {
+	var granteeUserID user.UserId
+	var granteeGroupID group.GroupId
+	var itemID provider.ResourceId
+	_ = utils.ReadJSONFromOpaque(r.GetOpaque(), "granteeuserid", &granteeUserID)
+	_ = utils.ReadJSONFromOpaque(r.GetOpaque(), "granteegroupid", &granteeGroupID)
+	_ = utils.ReadJSONFromOpaque(r.GetOpaque(), "resourceid", &itemID)
+	return events.SubspaceMemberRemoved{
+		Executant:      executant.GetId(),
+		GranteeUserID:  &granteeUserID,
+		GranteeGroupID: &granteeGroupID,
+		ItemID:         &itemID,
+		ResourceName:   utils.ReadPlainFromOpaque(r.GetOpaque(), "resourcename"),
+		Timestamp:      time.Now(),
+	}
+}
+
 // SpaceShared converts the response to an event
 func SpaceShared(r *collaboration.CreateShareResponse, executant *user.User) events.SpaceShared {
 	id := storagespace.FormatStorageID(r.GetShare().GetResourceId().GetStorageId(), r.GetShare().GetResourceId().GetSpaceId())

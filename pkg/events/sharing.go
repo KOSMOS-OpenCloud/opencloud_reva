@@ -53,6 +53,40 @@ func (ShareCreated) Unmarshal(v []byte) (interface{}, error) {
 	return e, err
 }
 
+// SubspaceMemberAdded is emitted when a user is added as member of a subspace
+type SubspaceMemberAdded struct {
+	Executant      *user.UserId
+	GranteeUserID  *user.UserId
+	GranteeGroupID *group.GroupId
+	ItemID         *provider.ResourceId
+	ResourceName   string
+	CTime          *types.Timestamp
+}
+
+// Unmarshal to fulfill umarshaller interface
+func (SubspaceMemberAdded) Unmarshal(v []byte) (interface{}, error) {
+	e := SubspaceMemberAdded{}
+	err := json.Unmarshal(v, &e)
+	return e, err
+}
+
+// SubspaceMemberRemoved is emitted when a user is removed from a subspace
+type SubspaceMemberRemoved struct {
+	Executant      *user.UserId
+	GranteeUserID  *user.UserId
+	GranteeGroupID *group.GroupId
+	ItemID         *provider.ResourceId
+	ResourceName   string
+	Timestamp      time.Time
+}
+
+// Unmarshal to fulfill umarshaller interface
+func (SubspaceMemberRemoved) Unmarshal(v []byte) (interface{}, error) {
+	e := SubspaceMemberRemoved{}
+	err := json.Unmarshal(v, &e)
+	return e, err
+}
+
 // ShareRemoved is emitted when a share is removed
 type ShareRemoved struct {
 	Executant *user.UserId

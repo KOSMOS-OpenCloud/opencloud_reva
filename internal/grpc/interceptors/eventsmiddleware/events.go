@@ -86,6 +86,8 @@ func NewUnary(m map[string]interface{}) (grpc.UnaryServerInterceptor, int, error
 				}
 				if utils.ExistsInOpaque(v.Opaque, "spacegrant") {
 					ev = SpaceShared(v, executant)
+				} else if utils.ExistsInOpaque(v.Opaque, "subspacegrant") {
+					ev = SubspaceMemberAdded(v, executant)
 				} else {
 					ev = ShareCreated(v, executant)
 				}
@@ -94,6 +96,8 @@ func NewUnary(m map[string]interface{}) (grpc.UnaryServerInterceptor, int, error
 			if isSuccess(v) {
 				if utils.ExistsInOpaque(v.Opaque, "spacegrant") {
 					ev = SpaceUnshared(v, req.(*collaboration.RemoveShareRequest), executant)
+				} else if utils.ExistsInOpaque(v.Opaque, "subspacegrant") {
+					ev = SubspaceMemberRemoved(v, req.(*collaboration.RemoveShareRequest), executant)
 				} else {
 					ev = ShareRemoved(v, req.(*collaboration.RemoveShareRequest), executant)
 				}

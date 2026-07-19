@@ -316,6 +316,14 @@ func (s *service) CreateShare(ctx context.Context, req *collaboration.CreateShar
 	var opaque *typesv1beta1.Opaque
 	if isSpaceRoot {
 		opaque = utils.SpaceGrantOpaque()
+	} else if sRes.GetInfo().GetSpace() != nil && sRes.GetInfo().GetSpace().GetSpaceType() == "project" &&
+		sRes.GetInfo().GetType() == provider.ResourceType_RESOURCE_TYPE_CONTAINER {
+		// Folder share in a project space → subspace grant
+		opaque = &typesv1beta1.Opaque{
+			Map: map[string]*typesv1beta1.OpaqueEntry{
+				"subspacegrant": {},
+			},
+		}
 	}
 
 	if noEvent {
@@ -417,6 +425,13 @@ func (s *service) RemoveShare(ctx context.Context, req *collaboration.RemoveShar
 	var opaque *typesv1beta1.Opaque
 	if utils.IsSpaceRoot(sRes.GetInfo()) {
 		opaque = utils.SpaceGrantOpaque()
+	} else if sRes.GetInfo().GetSpace() != nil && sRes.GetInfo().GetSpace().GetSpaceType() == "project" &&
+		sRes.GetInfo().GetType() == provider.ResourceType_RESOURCE_TYPE_CONTAINER {
+		opaque = &typesv1beta1.Opaque{
+			Map: map[string]*typesv1beta1.OpaqueEntry{
+				"subspacegrant": {},
+			},
+		}
 	}
 	opaque = utils.AppendJSONToOpaque(opaque, "resourceid", share.GetResourceId())
 	opaque = utils.AppendPlainToOpaque(opaque, "resourcename", sRes.GetInfo().GetName())

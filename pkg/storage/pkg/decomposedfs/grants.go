@@ -141,6 +141,7 @@ func (fs *Decomposedfs) AddGrant(ctx context.Context, ref *provider.Reference, g
 	// in a project space.
 	appctx.GetLogger(ctx).Info().Str("nodeid", grantNode.ID).Str("spaceid", grantNode.SpaceID).Msg("AddGrant: calling autoAddSubspace")
 	fs.autoAddSubspace(ctx, grantNode)
+
 	return nil
 }
 
