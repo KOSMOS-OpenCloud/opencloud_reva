@@ -24,6 +24,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -784,14 +785,173 @@ func (s *svc) Move(ctx context.Context, req *provider.MoveRequest) (*provider.Mo
 	}
 
 	if sourceProviderInfo.Address != destProviderInfo.Address {
-		return &provider.MoveResponse{
-			Status: status.NewUnimplemented(ctx, nil, "cross storage moves are not supported, use copy and delete"),
-		}, nil
+		if !s.c.CrossSpaceMove {
+			return &provider.MoveResponse{
+				Status: status.NewUnimplemented(ctx, nil, "cross storage moves are not supported, use copy and delete"),
+			}, nil
+		}
+		return s.crossSpaceMove(ctx, req.Source, req.Destination)
 	}
 
 	req.Source = sref
 	req.Destination = dref
 	return c.Move(ctx, req)
+}
+
+// crossSpaceMove implements a server-side cross-space move:
+// 1. Stat source (get metadata + size)
+// 2. Copy blob via download + upload
+// 3. Copy arbitrary metadata
+// 4. Delete source (goes to trash)
+func (s *svc) crossSpaceMove(ctx context.Context, src, dst *provider.Reference) (*provider.MoveResponse, error) {
+	log := appctx.GetLogger(ctx)
+
+	// 1. Stat source
+	srcStat, err := s.Stat(ctx, &provider.StatRequest{Ref: src})
+	if err != nil || srcStat.Status.Code != rpc.Code_CODE_OK {
+		log.Error().Err(err).Msg("cross-space move: failed to stat source")
+		return &provider.MoveResponse{
+			Status: status.NewInternal(ctx, "cross-space move: failed to stat source"),
+		}, nil
+	}
+	srcInfo := srcStat.GetInfo()
+
+	// Folders: not supported yet (would need recursive copy)
+	if srcInfo.Type == provider.ResourceType_RESOURCE_TYPE_CONTAINER {
+		return &provider.MoveResponse{
+			Status: status.NewUnimplemented(ctx, nil, "cross-space move of folders is not yet supported"),
+		}, nil
+	}
+
+	// 2. Download source blob
+	dlRes, err := s.InitiateFileDownload(ctx, &provider.InitiateFileDownloadRequest{Ref: src})
+	if err != nil || dlRes.Status.Code != rpc.Code_CODE_OK {
+		log.Error().Err(err).Msg("cross-space move: failed to initiate download")
+		return &provider.MoveResponse{
+			Status: status.NewInternal(ctx, "cross-space move: failed to initiate download"),
+		}, nil
+	}
+
+	// 3. Upload to destination
+	ulRes, err := s.InitiateFileUpload(ctx, &provider.InitiateFileUploadRequest{
+		Ref: dst,
+		Opaque: &typesv1beta1.Opaque{
+			Map: map[string]*typesv1beta1.OpaqueEntry{
+				"Upload-Length": {
+					Decoder: "plain",
+					Value:   []byte(fmt.Sprintf("%d", srcInfo.Size)),
+				},
+			},
+		},
+	})
+	if err != nil || ulRes.Status.Code != rpc.Code_CODE_OK {
+		log.Error().Err(err).Msg("cross-space move: failed to initiate upload")
+		return &provider.MoveResponse{
+			Status: status.NewInternal(ctx, "cross-space move: failed to initiate upload"),
+		}, nil
+	}
+
+	// Transfer blob: download from source, upload to destination
+	if err := s.transferBlob(ctx, dlRes.Protocols, ulRes.Protocols, srcInfo.Size); err != nil {
+		log.Error().Err(err).Msg("cross-space move: blob transfer failed")
+		return &provider.MoveResponse{
+			Status: status.NewInternal(ctx, "cross-space move: blob transfer failed"),
+		}, nil
+	}
+
+	// 4. Copy arbitrary metadata to destination
+	if srcInfo.ArbitraryMetadata != nil && len(srcInfo.ArbitraryMetadata.Metadata) > 0 {
+		setRes, err := s.SetArbitraryMetadata(ctx, &provider.SetArbitraryMetadataRequest{
+			Ref:               dst,
+			ArbitraryMetadata: srcInfo.ArbitraryMetadata,
+		})
+		if err != nil || setRes.Status.Code != rpc.Code_CODE_OK {
+			log.Warn().Err(err).Msg("cross-space move: failed to copy metadata (continuing)")
+		}
+	}
+
+	// 5. Delete source (goes to trash)
+	delRes, err := s.Delete(ctx, &provider.DeleteRequest{Ref: src})
+	if err != nil || delRes.Status.Code != rpc.Code_CODE_OK {
+		log.Error().Err(err).Msg("cross-space move: failed to delete source")
+		return &provider.MoveResponse{
+			Status: status.NewInternal(ctx, "cross-space move: source copied but delete failed"),
+		}, nil
+	}
+
+	log.Info().
+		Str("src", fmt.Sprintf("%+v", src)).
+		Str("dst", fmt.Sprintf("%+v", dst)).
+		Uint64("size", srcInfo.Size).
+		Int("metadata_fields", len(srcInfo.GetArbitraryMetadata().GetMetadata())).
+		Msg("cross-space move completed")
+
+	return &provider.MoveResponse{
+		Status: status.NewOK(ctx),
+	}, nil
+}
+
+// transferBlob downloads from source protocols and uploads to destination protocols.
+func (s *svc) transferBlob(ctx context.Context, dlProtos []*gateway.FileDownloadProtocol, ulProtos []*gateway.FileUploadProtocol, size uint64) error {
+	// Find download endpoint
+	var dlEP, dlToken string
+	for _, p := range dlProtos {
+		if p.Protocol == "spaces" || p.Protocol == "simple" {
+			dlEP, dlToken = p.DownloadEndpoint, p.Token
+			break
+		}
+	}
+	if dlEP == "" {
+		return fmt.Errorf("no download endpoint found")
+	}
+
+	// Find upload endpoint
+	var ulEP, ulToken string
+	for _, p := range ulProtos {
+		if p.Protocol == "simple" || p.Protocol == "spaces" {
+			ulEP, ulToken = p.UploadEndpoint, p.Token
+			break
+		}
+	}
+	if ulEP == "" {
+		return fmt.Errorf("no upload endpoint found")
+	}
+
+	// Download
+	dlReq, err := http.NewRequestWithContext(ctx, "GET", dlEP, nil)
+	if err != nil {
+		return err
+	}
+	dlReq.Header.Set("X-Reva-Transfer", dlToken)
+
+	client := &http.Client{}
+	dlResp, err := client.Do(dlReq)
+	if err != nil {
+		return fmt.Errorf("download failed: %w", err)
+	}
+	defer dlResp.Body.Close()
+	if dlResp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned %d", dlResp.StatusCode)
+	}
+
+	// Upload
+	ulReq, err := http.NewRequestWithContext(ctx, "PUT", ulEP, dlResp.Body)
+	if err != nil {
+		return err
+	}
+	ulReq.Header.Set("X-Reva-Transfer", ulToken)
+	ulReq.ContentLength = int64(size)
+
+	ulResp, err := client.Do(ulReq)
+	if err != nil {
+		return fmt.Errorf("upload failed: %w", err)
+	}
+	defer ulResp.Body.Close()
+	if ulResp.StatusCode != http.StatusOK {
+		return fmt.Errorf("upload returned %d", ulResp.StatusCode)
+	}
+
+	return nil
 }
 
 func (s *svc) SetArbitraryMetadata(ctx context.Context, req *provider.SetArbitraryMetadataRequest) (*provider.SetArbitraryMetadataResponse, error) {

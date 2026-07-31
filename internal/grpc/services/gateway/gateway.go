@@ -71,6 +71,7 @@ type config struct {
 	AllowedUserAgents              map[string][]string               `mapstructure:"allowed_user_agents"` // map[path][]user-agent
 	CreatePersonalSpaceCacheConfig cache.Config                      `mapstructure:"create_personal_space_cache_config"`
 	ProviderCacheConfig            cache.Config                      `mapstructure:"provider_cache_config"`
+	CrossSpaceMove                 bool                              `mapstructure:"cross_space_move"` // enable server-side cross-space move with metadata preservation
 }
 
 // sets defaults
