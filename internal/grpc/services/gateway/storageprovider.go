@@ -309,6 +309,10 @@ func (s *svc) CreateStorageSpace(ctx context.Context, req *provider.CreateStorag
 }
 
 func (s *svc) ListStorageSpaces(ctx context.Context, req *provider.ListStorageSpacesRequest) (*provider.ListStorageSpacesResponse, error) {
+	lssStart := time.Now()
+	defer func() {
+		appctx.GetLogger(ctx).Info().Str("duration", time.Since(lssStart).String()).Msg("ListStorageSpaces total")
+	}()
 	// TODO update CS3 api to forward the filters to the registry so it can filter the number of providers the gateway needs to query
 	filters := map[string]string{
 		// TODO add opaque / CS3 api to expand 'path,root,stat?' properties / field mask
@@ -363,7 +367,9 @@ func (s *svc) ListStorageSpaces(ctx context.Context, req *provider.ListStorageSp
 	if len(filters) > 0 {
 		sdk.EncodeOpaqueMap(listReq.Opaque, filters)
 	}
+	registryStart := time.Now()
 	res, err := c.ListStorageProviders(ctx, listReq)
+	appctx.GetLogger(ctx).Info().Str("registry_duration", time.Since(registryStart).String()).Int("providers", len(res.GetProviders())).Msg("ListStorageSpaces: registry call")
 	if err != nil {
 		return &provider.ListStorageSpacesResponse{
 			Status: status.NewStatusFromErrType(ctx, "gateway could not call ListStorageSpaces", err),
@@ -375,10 +381,12 @@ func (s *svc) ListStorageSpaces(ctx context.Context, req *provider.ListStorageSp
 		}, nil
 	}
 
+	decodeStart := time.Now()
 	spaces := []*provider.StorageSpace{}
 	for _, providerInfo := range res.Providers {
 		spaces = append(spaces, decodeSpaces(providerInfo)...)
 	}
+	appctx.GetLogger(ctx).Info().Str("decode_duration", time.Since(decodeStart).String()).Int("spaces", len(spaces)).Msg("ListStorageSpaces: decode")
 
 	return &provider.ListStorageSpacesResponse{
 		Status:        status.NewOK(ctx),
