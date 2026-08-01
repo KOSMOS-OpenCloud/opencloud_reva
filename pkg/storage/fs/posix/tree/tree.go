@@ -757,21 +757,24 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 		}
 	}
 
-	// 4. Set correct node ID and cache
+	// 4. Set correct node ID
 	if newNode.ID == "" {
 		newNode.ID = uuid.New().String()
 	}
 	_ = xattr.Set(newPath, "user.ocis.id", []byte(newNode.ID))
+
+	// 5. Update ID cache: remove old, add new
+	_ = t.lookup.IDCache.DeleteByPath(ctx, oldPath)
 	if err := t.lookup.CacheID(ctx, newNode.SpaceID, newNode.ID, newPath); err != nil {
 		t.log.Warn().Err(err).Msg("crossSpaceMove: error caching target ID")
 	}
 
-	// 5. Remove source
+	// 6. Remove source
 	if err := os.Remove(oldPath); err != nil {
 		t.log.Warn().Err(err).Msg("crossSpaceMove: error removing source")
 	}
 
-	// 6. Propagate
+	// 7. Propagate
 	if err := t.Propagate(ctx, newNode, newNode.Blobsize); err != nil {
 		t.log.Warn().Err(err).Msg("crossSpaceMove: error propagating target")
 	}
