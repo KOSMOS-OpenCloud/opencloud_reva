@@ -719,8 +719,15 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 		return errtypes.NotSupported("cross-space move of directories is not yet supported")
 	}
 
-	oldPath := filepath.Join(oldNode.ParentPath(), oldNode.Name)
-	newPath := filepath.Join(newNode.ParentPath(), newNode.Name)
+	// Use InternalPath for source (cached from NodeFromResource lookup)
+	oldPath := oldNode.InternalPath()
+	// For destination: construct from parent's InternalPath + name
+	newParent := newNode.ParentPath()
+	if newParent == "" {
+		// Fallback: parent node InternalPath from cache
+		newParent = t.lookup.InternalPath(newNode.SpaceID, newNode.ParentID)
+	}
+	newPath := filepath.Join(newParent, newNode.Name)
 
 	// 1. Ensure target directory exists
 	if err := os.MkdirAll(filepath.Dir(newPath), 0700); err != nil {
