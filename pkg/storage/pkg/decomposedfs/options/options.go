@@ -59,6 +59,9 @@ type Options struct {
 	// ProjectLayout describes the relative path from the storage's root node to the project spaces root directory.
 	ProjectLayout string `mapstructure:"project_layout"`
 
+	// enable server-side cross-space move with metadata preservation
+	CrossSpaceMove bool `mapstructure:"cross_space_move"`
+
 	// propagate mtime changes as tmtime (tree modification time) to the parent directory when user.oc.propagation=1 is set on a node
 	TreeTimeAccounting bool `mapstructure:"treetime_accounting"`
 
