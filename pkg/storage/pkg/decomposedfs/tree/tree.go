@@ -227,11 +227,11 @@ func (t *Tree) Move(ctx context.Context, oldNode *node.Node, newNode *node.Node)
 	_, span := tracer.Start(ctx, "Move")
 	defer span.End()
 	if oldNode.SpaceID != newNode.SpaceID {
-		appctx.GetLogger(ctx).Info().
+		appctx.GetLogger(ctx).Error().
 			Bool("cross_space_move_enabled", t.options.CrossSpaceMove).
 			Str("old_space", oldNode.SpaceID).
 			Str("new_space", newNode.SpaceID).
-			Msg("tree: cross-space move attempt")
+			Msg("TREE MOVE CROSS-SPACE")
 		if !t.options.CrossSpaceMove {
 			return errtypes.NotSupported("cannot move across spaces")
 		}
