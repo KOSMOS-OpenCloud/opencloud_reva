@@ -785,7 +785,7 @@ func (s *svc) Move(ctx context.Context, req *provider.MoveRequest) (*provider.Mo
 	}
 
 	if sourceProviderInfo.Address != destProviderInfo.Address {
-		log.Info().Bool("cross_space_move", s.c.CrossSpaceMove).
+		appctx.GetLogger(ctx).Error().Bool("cross_space_move", s.c.CrossSpaceMove).
 			Str("source_provider", sourceProviderInfo.Address).
 			Str("dest_provider", destProviderInfo.Address).
 			Msg("gateway: cross-space move request")
