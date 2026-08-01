@@ -785,6 +785,10 @@ func (s *svc) Move(ctx context.Context, req *provider.MoveRequest) (*provider.Mo
 	}
 
 	if sourceProviderInfo.Address != destProviderInfo.Address {
+		log.Info().Bool("cross_space_move", s.c.CrossSpaceMove).
+			Str("source_provider", sourceProviderInfo.Address).
+			Str("dest_provider", destProviderInfo.Address).
+			Msg("gateway: cross-space move request")
 		if !s.c.CrossSpaceMove {
 			return &provider.MoveResponse{
 				Status: status.NewUnimplemented(ctx, nil, "cross storage moves are not supported, use copy and delete"),
