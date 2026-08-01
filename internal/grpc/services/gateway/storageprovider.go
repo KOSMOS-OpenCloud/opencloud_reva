@@ -770,6 +770,7 @@ func (s *svc) Delete(ctx context.Context, req *provider.DeleteRequest) (*provide
 }
 
 func (s *svc) Move(ctx context.Context, req *provider.MoveRequest) (*provider.MoveResponse, error) {
+	appctx.GetLogger(ctx).Error().Str("source", req.Source.String()).Str("dest", req.Destination.String()).Msg("GATEWAY MOVE ENTRY")
 	c, sourceProviderInfo, sref, err := s.findAndUnwrap(ctx, req.Source)
 	if err != nil {
 		return &provider.MoveResponse{
