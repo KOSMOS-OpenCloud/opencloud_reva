@@ -430,13 +430,10 @@ func (t *Tree) Move(ctx context.Context, oldNode *node.Node, newNode *node.Node)
 	defer span.End()
 
 	if oldNode.SpaceID != newNode.SpaceID {
-		// WebDAV RFC https://www.rfc-editor.org/rfc/rfc4918#section-9.9.4 says to use
-		// > 502 (Bad Gateway) - This may occur when the destination is on another
-		// > server and the destination server refuses to accept the resource.
-		// > This could also occur when the destination is on another sub-section
-		// > of the same server namespace.
-		// but we only have a not supported error
-		return errtypes.NotSupported("cannot move across spaces")
+		if !t.options.CrossSpaceMove {
+			return errtypes.NotSupported("cannot move across spaces")
+		}
+		return t.crossSpaceMove(ctx, oldNode, newNode)
 	}
 	// if target exists delete it without trashing it
 	if newNode.Exists {
@@ -715,6 +712,113 @@ func (t *Tree) Delete(ctx context.Context, n *node.Node) error {
 }
 
 // Propagate propagates changes to the root of the tree
+// crossSpaceMove moves a file between spaces by creating a new node in the
+// target space, copying the blob and metadata, then removing the source.
+func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *node.Node) error {
+	if oldNode.IsDir(ctx) {
+		return errtypes.NotSupported("cross-space move of directories is not yet supported")
+	}
+
+	// 1. Create new node in target space
+	if newNode.ID == "" {
+		newNode.ID = uuid.New().String()
+	}
+	newNode.SetType(provider.ResourceType_RESOURCE_TYPE_FILE)
+
+	nodePath := newNode.InternalPath()
+	if err := os.MkdirAll(filepath.Dir(nodePath), 0700); err != nil {
+		return errors.Wrap(err, "crossSpaceMove: error creating target node dir")
+	}
+	if _, err := os.Create(nodePath); err != nil {
+		return errors.Wrap(err, "crossSpaceMove: error creating target node")
+	}
+
+	// 2. Copy blob
+	reader, err := t.ReadBlob(oldNode)
+	if err != nil {
+		return errors.Wrap(err, "crossSpaceMove: error reading source blob")
+	}
+	tmpFile, err := os.CreateTemp("", "crossmove-*")
+	if err != nil {
+		reader.Close()
+		return errors.Wrap(err, "crossSpaceMove: error creating temp file")
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmpFile, reader); err != nil {
+		tmpFile.Close()
+		reader.Close()
+		return errors.Wrap(err, "crossSpaceMove: error copying blob to temp")
+	}
+	tmpFile.Close()
+	reader.Close()
+
+	newNode.BlobID = uuid.New().String()
+	newNode.Blobsize = oldNode.Blobsize
+
+	if err := t.WriteBlob(newNode, tmpPath); err != nil {
+		return errors.Wrap(err, "crossSpaceMove: error writing target blob")
+	}
+
+	// 3. Copy all metadata from old node to new node
+	if err := t.lookup.CopyMetadata(ctx, oldNode, newNode, func(attributeName string, value []byte) (newValue []byte, copy bool) {
+		switch attributeName {
+		case prefixes.ParentidAttr, prefixes.NameAttr:
+			return nil, false
+		default:
+			return value, true
+		}
+	}, true); err != nil {
+		return errors.Wrap(err, "crossSpaceMove: error copying metadata")
+	}
+
+	// 4. Set correct parent, name, blobid, blobsize on new node
+	attribs := node.Attributes{}
+	attribs.SetString(prefixes.ParentidAttr, newNode.ParentID)
+	attribs.SetString(prefixes.NameAttr, newNode.Name)
+	attribs.SetString(prefixes.BlobIDAttr, newNode.BlobID)
+	attribs.SetInt64(prefixes.BlobsizeAttr, newNode.Blobsize)
+	if err := newNode.SetXattrsWithContext(ctx, attribs, true); err != nil {
+		return errors.Wrap(err, "crossSpaceMove: error setting target node attributes")
+	}
+
+	// 5. Create symlink in target parent
+	relativeNodePath := filepath.Join("../../../../../", lookup.Pathify(newNode.ID, 4, 2))
+	if err := os.Symlink(relativeNodePath, filepath.Join(newNode.ParentPath(), newNode.Name)); err != nil {
+		return errors.Wrap(err, "crossSpaceMove: error creating symlink")
+	}
+
+	// 6. Propagate size in target space
+	if err := t.Propagate(ctx, newNode, newNode.Blobsize); err != nil {
+		t.log.Warn().Err(err).Msg("crossSpaceMove: error propagating target")
+	}
+
+	// 7. Remove source
+	oldSymlink := filepath.Join(oldNode.ParentPath(), oldNode.Name)
+	if err := os.Remove(oldSymlink); err != nil {
+		t.log.Warn().Err(err).Msg("crossSpaceMove: error removing source symlink")
+	}
+	if err := t.Propagate(ctx, oldNode, -oldNode.Blobsize); err != nil {
+		t.log.Warn().Err(err).Msg("crossSpaceMove: error propagating source")
+	}
+	if err := t.DeleteBlob(oldNode); err != nil {
+		t.log.Warn().Err(err).Msg("crossSpaceMove: error deleting source blob")
+	}
+	if err := os.RemoveAll(oldNode.InternalPath()); err != nil {
+		t.log.Warn().Err(err).Msg("crossSpaceMove: error removing source node")
+	}
+
+	t.log.Info().
+		Str("source_space", oldNode.SpaceID).
+		Str("target_space", newNode.SpaceID).
+		Str("name", newNode.Name).
+		Int64("size", newNode.Blobsize).
+		Msg("cross-space move completed")
+
+	return nil
+}
+
 func (t *Tree) Propagate(ctx context.Context, n *node.Node, sizeDiff int64) (err error) {
 	// We do not propagate size diffs here but rely on the assimilation to take care of the tree sizes instead
 	return t.propagator.Propagate(ctx, n, sizeDiff)
