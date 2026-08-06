@@ -1109,8 +1109,13 @@ func (n *Node) ReadUserPermissions(ctx context.Context, u *userpb.User) (ap *pro
 func (n *Node) IsDenied(ctx context.Context) bool {
 	gs, err := n.ListGrants(ctx)
 	if err != nil {
-		// be paranoid, resource is denied
-		return true
+		// Don't be paranoid — a metadata read error (e.g. missing .mpk
+		// offload file) does not mean the resource was denied. Hiding
+		// files on transient errors is worse than showing them.
+		appctx.GetLogger(ctx).Warn().Err(err).
+			Str("spaceid", n.SpaceID).Str("nodeid", n.ID).
+			Msg("IsDenied: cannot read grants, assuming not denied")
+		return false
 	}
 
 	u := ctxpkg.ContextMustGetUser(ctx)
