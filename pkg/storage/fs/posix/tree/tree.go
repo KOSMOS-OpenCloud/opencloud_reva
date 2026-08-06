@@ -561,7 +561,9 @@ func (t *Tree) ListFolder(ctx context.Context, n *node.Node) ([]*node.Node, erro
 	if err != nil {
 		return nil, err
 	}
-	t.log.Debug().Str("dir", dir).Int("entries", len(names)).Msg("ListFolder: readdir")
+	if len(names) > 0 {
+		t.log.Info().Str("dir", dir).Int("entries", len(names)).Msg("ListFolder: readdir")
+	}
 
 	numWorkers := t.options.MaxConcurrency
 	if len(names) < numWorkers {
@@ -661,12 +663,12 @@ func (t *Tree) ListFolder(ctx context.Context, n *node.Node) ([]*node.Node, erro
 	}
 
 	if err := g.Wait(); err != nil {
-		t.log.Debug().Err(err).Str("dir", dir).Int("entries", len(names)).Int("nodes", len(retNodes)).Msg("ListFolder: error after walk")
+		t.log.Error().Err(err).Str("dir", dir).Int("entries", len(names)).Int("nodes", len(retNodes)).Msg("ListFolder: error after walk")
 		return nil, err
 	}
 
 	if len(retNodes) != len(names) {
-		t.log.Debug().Str("dir", dir).Int("entries", len(names)).Int("nodes", len(retNodes)).Msg("ListFolder: entry/node count mismatch")
+		t.log.Warn().Str("dir", dir).Int("entries", len(names)).Int("nodes", len(retNodes)).Msg("ListFolder: entry/node count mismatch")
 	}
 
 	return retNodes, nil
