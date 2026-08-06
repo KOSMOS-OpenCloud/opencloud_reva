@@ -639,6 +639,9 @@ func (t *Tree) ListFolder(ctx context.Context, n *node.Node) ([]*node.Node, erro
 				}
 
 				// prevent listing denied resources
+				if child.IsDenied(ctx) {
+					t.log.Warn().Str("path", path).Str("nodeID", nodeID).Msg("ListFolder: child denied")
+				}
 				if !child.IsDenied(ctx) {
 					if child.SpaceRoot == nil {
 						child.SpaceRoot = n.SpaceRoot
