@@ -575,12 +575,14 @@ func (t *Tree) ListFolder(ctx context.Context, n *node.Node) ([]*node.Node, erro
 	g, ctx := errgroup.WithContext(ctx)
 
 	// Distribute work
+	workCount := 0
 	g.Go(func() error {
 		defer close(work)
 		for _, name := range names {
 			if t.Ignorer.IsIgnored(filepath.Join(dir, name)) {
 				continue
 			}
+			workCount++
 
 			select {
 			case work <- name:
@@ -667,8 +669,8 @@ func (t *Tree) ListFolder(ctx context.Context, n *node.Node) ([]*node.Node, erro
 		return nil, err
 	}
 
-	if len(retNodes) != len(names) {
-		t.log.Warn().Str("dir", dir).Int("entries", len(names)).Int("nodes", len(retNodes)).Msg("ListFolder: entry/node count mismatch")
+	if len(retNodes) != workCount {
+		t.log.Warn().Str("dir", dir).Int("work", workCount).Int("nodes", len(retNodes)).Int("missing", workCount-len(retNodes)).Msg("ListFolder: node count mismatch (after ignorer)")
 	}
 
 	return retNodes, nil
