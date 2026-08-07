@@ -470,10 +470,14 @@ func (b HybridBackend) Purge(ctx context.Context, n MetadataNode) error {
 				}
 			}
 		}
+
+		// Remove offloaded metadata file (.mpk) if it exists
+		_ = os.Remove(b.MetadataPath(n))
 	}
 
 	return b.metaCache.RemoveMetadata(b.cacheKey(n))
 }
+
 
 // Rename moves the data for a given path to a new path
 func (b HybridBackend) Rename(oldNode, newNode MetadataNode) error {

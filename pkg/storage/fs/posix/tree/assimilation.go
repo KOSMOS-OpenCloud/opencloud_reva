@@ -487,22 +487,58 @@ func (t *Tree) assimilate(item scanItem) error {
 		if err == nil && len(parentID) > 0 && previousPath != item.Path {
 			_, err := os.Stat(previousPath)
 			if err == nil {
-				// this id clashes with an existing item -> clear metadata and re-assimilate
-				t.log.Debug().Str("path", item.Path).Msg("ID clash detected, purging metadata and re-assimilating")
+				// ID clash — crash-safe metadata migration:
+				// 1. Read all metadata (incl. offloaded .mpk)
+				// 2. Remove only ID xattr so re-assimilate generates new ID
+				// 3. Re-assimilate (writes structural attrs under new ID)
+				// 4. Restore custom metadata under new ID
+				// 5. Cleanup old .mpk + old cache entry
+				t.log.Info().Str("path", item.Path).Str("oldID", id).Msg("ID clash detected, migrating metadata")
 
-				err := unlock()
-				if err != nil {
-					t.log.Error().Err(err).Str("path", item.Path).Msg("could not unlock item for assimilation")
+				// Step 1: Save custom metadata before any changes
+				savedMeta := map[string][]byte{}
+				if allAttrs, readErr := t.lookup.MetadataBackend().All(context.Background(), assimilationNode); readErr == nil {
+					for k, v := range allAttrs {
+						if strings.HasPrefix(k, prefixes.GrantPrefix) || strings.HasPrefix(k, prefixes.MetadataPrefix) {
+							savedMeta[k] = v
+						}
+					}
+				}
+				oldMpkPath := t.lookup.MetadataBackend().MetadataPath(assimilationNode)
+
+				// Step 2: Release lock, remove only ID xattr (SpaceID stays for re-assimilate)
+				if err := unlock(); err != nil {
+					t.log.Error().Err(err).Str("path", item.Path).Msg("could not unlock")
 				}
 				locked = false
-				if err := t.lookup.MetadataBackend().Purge(context.Background(), assimilationNode); err != nil {
-					t.log.Error().Err(err).Str("path", item.Path).Msg("could not purge metadata")
+				_ = t.lookup.MetadataBackend().Remove(context.Background(), assimilationNode, prefixes.IDAttr, true)
+
+				// Step 3: Re-assimilate synchronously — generates new UUID, writes structural attrs
+				if err := t.assimilate(scanItem{Path: item.Path}); err != nil {
+					t.log.Error().Err(err).Str("path", item.Path).Msg("could not re-assimilate")
+					return err
 				}
-				go func() {
-					if err := t.assimilate(scanItem{Path: item.Path}); err != nil {
-						t.log.Error().Err(err).Str("path", item.Path).Msg("could not re-assimilate")
+
+				// Step 4: Restore custom metadata under the new ID
+				if len(savedMeta) > 0 {
+					_, newID, _, _, identErr := t.lookup.MetadataBackend().IdentifyPath(context.Background(), item.Path)
+					if identErr == nil && newID != "" {
+						newNode := &assimilationNode{spaceID: spaceID, nodeId: newID, path: item.Path}
+						if err := t.lookup.MetadataBackend().SetMultiple(context.Background(), newNode, savedMeta, true); err != nil {
+							t.log.Error().Err(err).Str("path", item.Path).Msg("could not restore metadata after re-assimilation")
+						} else {
+							t.log.Info().Str("path", item.Path).Int("attrs", len(savedMeta)).Msg("restored custom metadata after re-assimilation")
+						}
 					}
-				}()
+				}
+
+				// Step 5: Cleanup — remove old .mpk (new one created by SetMultiple if needed)
+				_ = os.Remove(oldMpkPath)
+
+				// Step 6: Remove old IDCache entry for the previous path
+				if err := t.lookup.IDCache.DeletePath(context.Background(), previousPath); err != nil {
+					t.log.Debug().Err(err).Str("path", previousPath).Msg("could not delete old cache entry")
+				}
 			} else {
 				// this is a move
 				t.log.Debug().Str("path", item.Path).Msg("move detected")
