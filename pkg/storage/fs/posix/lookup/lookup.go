@@ -89,6 +89,10 @@ type Lookup struct {
 	log             *zerolog.Logger
 
 	listDisabledSpaces bool
+
+	// OnIDCacheMiss is called when IDCache lookup fails for a path.
+	// If set, it triggers on-the-fly assimilation (same as ListFolder).
+	OnIDCacheMiss func(path string) error
 }
 
 // New returns a new Lookup instance
@@ -145,7 +149,15 @@ func (lu *Lookup) NodeIDFromParentAndName(ctx context.Context, parent *node.Node
 	childPath := filepath.Join(parentPath, name)
 	_, childID, err := lu.IDsForPath(ctx, childPath)
 	if err != nil {
-		return "", err
+		if lu.OnIDCacheMiss != nil {
+			if assimErr := lu.OnIDCacheMiss(childPath); assimErr == nil {
+				// retry after assimilation
+				_, childID, err = lu.IDsForPath(ctx, childPath)
+			}
+		}
+		if err != nil {
+			return "", err
+		}
 	}
 	return childID, nil
 }

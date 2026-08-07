@@ -136,6 +136,12 @@ func New(lu node.PathLookup, bs node.Blobstore, um usermapper.Mapper, trashbin *
 	}
 	t.idResolver = t.lookup
 	t.assimilateFunc = t.assimilate
+
+	// Wire on-the-fly assimilation into the lookup so that
+	// MOVE/GET/DELETE get the same self-healing as ListFolder.
+	t.lookup.OnIDCacheMiss = func(path string) error {
+		return t.assimilate(scanItem{Path: path})
+	}
 	if err := t.checkStorage(); err != nil {
 		return nil, errors.Wrap(err, "tree: unfit storage '"+o.Root+"'")
 	}
