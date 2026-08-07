@@ -523,8 +523,9 @@ func (t *Tree) assimilate(item scanItem) error {
 				if len(savedMeta) > 0 {
 					_, newID, _, _, identErr := t.lookup.MetadataBackend().IdentifyPath(context.Background(), item.Path)
 					if identErr == nil && newID != "" {
-						newNode := &assimilationNode{spaceID: spaceID, nodeId: newID, path: item.Path}
-						if err := t.lookup.MetadataBackend().SetMultiple(context.Background(), newNode, savedMeta, true); err != nil {
+						restoreNode := *assimilationNode // copy struct, change ID
+						restoreNode.nodeId = newID
+						if err := t.lookup.MetadataBackend().SetMultiple(context.Background(), &restoreNode, savedMeta, true); err != nil {
 							t.log.Error().Err(err).Str("path", item.Path).Msg("could not restore metadata after re-assimilation")
 						} else {
 							t.log.Info().Str("path", item.Path).Int("attrs", len(savedMeta)).Msg("restored custom metadata after re-assimilation")
