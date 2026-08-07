@@ -166,6 +166,7 @@ func (s *svc) handleMove(ctx context.Context, w http.ResponseWriter, r *http.Req
 		return
 	}
 	if isChild {
+		log.Warn().Str("src", src.Path).Str("dst", dst.Path).Msg("MOVE 409: cannot move folder into its own child")
 		w.WriteHeader(http.StatusConflict)
 		b, err := errors.Marshal(http.StatusBadRequest, "can not move a folder into one of its children", "", "")
 		errors.HandleWebdavError(&log, w, b, err)
@@ -188,6 +189,7 @@ func (s *svc) handleMove(ctx context.Context, w http.ResponseWriter, r *http.Req
 		}
 	}
 	if isParent {
+		log.Warn().Str("src", src.Path).Str("dst", dst.Path).Msg("MOVE 409: cannot move folder into its parent")
 		w.WriteHeader(http.StatusConflict)
 		b, err := errors.Marshal(http.StatusBadRequest, "can not move a folder into its parent", "", "")
 		errors.HandleWebdavError(&log, w, b, err)
@@ -290,7 +292,12 @@ func (s *svc) handleMove(ctx context.Context, w http.ResponseWriter, r *http.Req
 		if intStatRes.Status.Code != rpc.Code_CODE_OK {
 			if intStatRes.Status.Code == rpc.Code_CODE_NOT_FOUND {
 				// 409 if intermediate dir is missing, see https://tools.ietf.org/html/rfc4918#section-9.8.5
-				log.Debug().Interface("parent", dst).Interface("status", intStatRes.Status).Msg("conflict")
+				log.Warn().
+					Str("dst_path", dst.Path).
+					Str("parent_path", utils.MakeRelativePath(path.Dir(dst.Path))).
+					Str("space_id", dst.ResourceId.GetSpaceId()).
+					Str("status_msg", intStatRes.Status.GetMessage()).
+					Msg("MOVE 409: destination parent folder not found (IDCache miss?)")
 				w.WriteHeader(http.StatusConflict)
 			} else {
 				errors.HandleErrorStatus(&log, w, intStatRes.Status)
