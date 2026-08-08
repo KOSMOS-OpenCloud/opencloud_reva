@@ -20,14 +20,13 @@ import (
 
 // NatsConfig is the configuration needed for a NATS event stream
 type NatsConfig struct {
-	Endpoint             string `mapstructure:"address"`          // Endpoint of the nats server
-	Cluster              string `mapstructure:"clusterID"`        // CluserID of the nats cluster
-	TLSInsecure          bool   `mapstructure:"tls-insecure"`     // Whether to verify TLS certificates
-	TLSRootCACertificate string `mapstructure:"tls-root-ca-cert"` // The root CA certificate used to validate the TLS certificate
-	EnableTLS            bool   `mapstructure:"enable-tls"`       // Enable TLS
+	Endpoint             string        `mapstructure:"address"`          // Endpoint of the nats server
+	Cluster              string        `mapstructure:"clusterID"`        // CluserID of the nats cluster
+	TLSInsecure          bool          `mapstructure:"tls-insecure"`     // Whether to verify TLS certificates
+	TLSRootCACertificate string        `mapstructure:"tls-root-ca-cert"` // The root CA certificate used to validate the TLS certificate
+	EnableTLS            bool          `mapstructure:"enable-tls"`       // Enable TLS
 	AuthUsername         string `mapstructure:"username"`         // Username for authentication
 	AuthPassword         string `mapstructure:"password"`         // Password for authentication
-
 }
 
 // NatsFromConfig returns a nats stream from the given config
@@ -87,9 +86,15 @@ func NatsFromConfig(connName string, disableDurability bool, cfg NatsConfig) (ev
 	if err != nil {
 		return nil, err
 	}
+	maxAge := 4 * time.Hour
+	if v := os.Getenv("OC_EVENTS_RETENTION"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			maxAge = d
+		}
+	}
 	streamCfg := jetstream.StreamConfig{
 		Name:   "main-queue",
-		MaxAge: 7 * 24 * time.Hour,
+		MaxAge: maxAge,
 	}
 	_, err = jsConn.CreateStream(ctx, streamCfg)
 	if err != nil {
