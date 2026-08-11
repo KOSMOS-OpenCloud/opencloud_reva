@@ -20,6 +20,7 @@ package walker
 
 import (
 	"context"
+	"log"
 	"path/filepath"
 
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
@@ -85,12 +86,17 @@ func (r *revaWalker) walkRecursively(ctx context.Context, wd string, info *provi
 
 	list, err := r.readDir(ctx, info.Id)
 	if err != nil {
-		return err
+		// Log and continue — don't abort the entire walk because one directory failed
+		log.Printf("walker: readDir failed for %s (id=%s$%s!%s): %v — skipping subtree",
+			filepath.Join(wd, info.Path), info.Id.StorageId, info.Id.SpaceId, info.Id.OpaqueId, err)
+		return nil
 	}
 	for _, file := range list {
 		err = r.walkRecursively(ctx, filepath.Join(wd, info.Path), file, fn)
 		if err != nil && (file.Type != provider.ResourceType_RESOURCE_TYPE_CONTAINER || err != filepath.SkipDir) {
-			return err
+			// Log and continue — don't abort the walk for sibling errors
+			log.Printf("walker: walkRecursively failed for %s/%s: %v — skipping",
+				filepath.Join(wd, info.Path), file.Path, err)
 		}
 	}
 
