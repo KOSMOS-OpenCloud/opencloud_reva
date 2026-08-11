@@ -772,24 +772,29 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 	dst.Close()
 	src.Close()
 
-	// 3. Copy all xattrs from source to target
-	attrs, err := xattr.List(oldPath)
-	if err == nil {
-		for _, attr := range attrs {
-			val, err := xattr.Get(oldPath, attr)
-			if err == nil {
-				_ = xattr.Set(newPath, attr, val)
-			}
-		}
-	}
-
-	// 4. Set correct node ID, parent ID and name
+	// 3. Copy all metadata from source to target (including offloaded xattrs)
 	if newNode.ID == "" {
 		newNode.ID = uuid.New().String()
 	}
-	_ = xattr.Set(newPath, prefixes.IDAttr, []byte(newNode.ID))
-	_ = xattr.Set(newPath, prefixes.ParentidAttr, []byte(newNode.ParentID))
-	_ = xattr.Set(newPath, prefixes.NameAttr, []byte(newNode.Name))
+	if err := t.lookup.CopyMetadata(ctx, oldNode, newNode, func(attributeName string, value []byte) (newValue []byte, copy bool) {
+		switch attributeName {
+		case prefixes.ParentidAttr, prefixes.NameAttr, prefixes.IDAttr:
+			return nil, false // will be set separately below
+		default:
+			return value, true
+		}
+	}, true); err != nil {
+		return errors.Wrap(err, "crossSpaceMove: error copying metadata")
+	}
+
+	// 4. Set correct node ID, parent ID and name
+	attribs := node.Attributes{}
+	attribs.SetString(prefixes.IDAttr, newNode.ID)
+	attribs.SetString(prefixes.ParentidAttr, newNode.ParentID)
+	attribs.SetString(prefixes.NameAttr, newNode.Name)
+	if err := newNode.SetXattrsWithContext(ctx, attribs, true); err != nil {
+		return errors.Wrap(err, "crossSpaceMove: error setting target node attributes")
+	}
 
 	// 5. Update ID cache: remove old, add new
 	_ = t.lookup.IDCache.DeleteByPath(ctx, oldPath)
