@@ -787,7 +787,7 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 	if newNode.ID == "" {
 		newNode.ID = uuid.New().String()
 	}
-	_ = xattr.Set(newPath, "user.ocis.id", []byte(newNode.ID))
+	_ = xattr.Set(newPath, prefixes.IDAttr, []byte(newNode.ID))
 	_ = xattr.Set(newPath, prefixes.ParentidAttr, []byte(newNode.ParentID))
 	_ = xattr.Set(newPath, prefixes.NameAttr, []byte(newNode.Name))
 
