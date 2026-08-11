@@ -783,11 +783,13 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 		}
 	}
 
-	// 4. Set correct node ID
+	// 4. Set correct node ID, parent ID and name
 	if newNode.ID == "" {
 		newNode.ID = uuid.New().String()
 	}
 	_ = xattr.Set(newPath, "user.ocis.id", []byte(newNode.ID))
+	_ = xattr.Set(newPath, prefixes.ParentidAttr, []byte(newNode.ParentID))
+	_ = xattr.Set(newPath, prefixes.NameAttr, []byte(newNode.Name))
 
 	// 5. Update ID cache: remove old, add new
 	_ = t.lookup.IDCache.DeleteByPath(ctx, oldPath)
