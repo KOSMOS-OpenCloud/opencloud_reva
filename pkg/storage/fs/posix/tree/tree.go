@@ -843,10 +843,11 @@ func (t *Tree) appendOldID(ctx context.Context, n *node.Node, path string, oldRe
 	prefix := "user.oc.oldids."
 	for i := 0; ; i++ {
 		key := prefix + strconv.Itoa(i)
-		_, err := xattr.Get(path, key)
-		if err != nil {
-			// Slot free — write here
-			if err := xattr.Set(path, key, []byte(oldRef)); err != nil {
+		if _, err := n.Xattr(ctx, key); err != nil {
+			// Slot free — write via metadata backend (not raw xattr)
+			attribs := node.Attributes{}
+			attribs.SetString(key, oldRef)
+			if err := n.SetXattrsWithContext(ctx, attribs, true); err != nil {
 				t.log.Warn().Err(err).Str("key", key).Msg("crossSpaceMove: error writing oldid xattr")
 			}
 			return
