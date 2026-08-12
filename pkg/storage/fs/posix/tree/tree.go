@@ -21,11 +21,15 @@ package tree
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -815,15 +819,90 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 		t.log.Warn().Err(err).Msg("crossSpaceMove: error propagating source")
 	}
 
+	// 8. Track previous ID (for cross-space provenance)
+	oldRef := oldNode.SpaceID + "!" + oldNode.ID
+	t.appendOldID(ctx, newNode, newPath, oldRef)
+	t.auditCrossSpaceMove(oldNode, newNode, oldPath, newPath, oldRef)
+
 	t.log.Info().
 		Str("source_space", oldNode.SpaceID).
 		Str("target_space", newNode.SpaceID).
 		Str("name", newNode.Name).
 		Str("old_path", oldPath).
 		Str("new_path", newPath).
+		Str("old_ref", oldRef).
+		Str("new_id", newNode.ID).
 		Msg("cross-space move completed")
 
 	return nil
+}
+
+// appendOldID adds the previous spaceID!nodeID to the numbered oldids xattrs on the target file.
+func (t *Tree) appendOldID(ctx context.Context, n *node.Node, path string, oldRef string) {
+	// Find next free index by scanning existing oldids
+	prefix := "user.oc.oldids."
+	for i := 0; ; i++ {
+		key := prefix + strconv.Itoa(i)
+		_, err := xattr.Get(path, key)
+		if err != nil {
+			// Slot free — write here
+			if err := xattr.Set(path, key, []byte(oldRef)); err != nil {
+				t.log.Warn().Err(err).Str("key", key).Msg("crossSpaceMove: error writing oldid xattr")
+			}
+			return
+		}
+	}
+}
+
+// auditCrossSpaceMove appends a chained JSONL entry to the audit log in the storage root.
+func (t *Tree) auditCrossSpaceMove(oldNode, newNode *node.Node, oldPath, newPath, oldRef string) {
+	auditDir := filepath.Join(t.lookup.InternalRoot(), "audit")
+	if err := os.MkdirAll(auditDir, 0700); err != nil {
+		t.log.Warn().Err(err).Msg("crossSpaceMove: error creating audit dir")
+		return
+	}
+	auditFile := filepath.Join(auditDir, "cross-space-moves.jsonl")
+
+	// Read last chain hash
+	prevHash := "0"
+	if data, err := os.ReadFile(auditFile); err == nil {
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) > 0 {
+			var last map[string]interface{}
+			if json.Unmarshal([]byte(lines[len(lines)-1]), &last) == nil {
+				if h, ok := last["chain"].(string); ok {
+					prevHash = h
+				}
+			}
+		}
+	}
+
+	entry := map[string]string{
+		"ts":        time.Now().UTC().Format(time.RFC3339),
+		"old_space": oldNode.SpaceID,
+		"old_id":    oldNode.ID,
+		"new_space": newNode.SpaceID,
+		"new_id":    newNode.ID,
+		"name":      newNode.Name,
+		"old_path":  oldPath,
+		"new_path":  newPath,
+		"prev":      prevHash,
+	}
+
+	// Compute chain hash: sha256(prevHash + json_without_chain)
+	entryJSON, _ := json.Marshal(entry)
+	h := sha256.Sum256(append([]byte(prevHash), entryJSON...))
+	entry["chain"] = hex.EncodeToString(h[:16]) // 128-bit, compact
+
+	line, _ := json.Marshal(entry)
+
+	f, err := os.OpenFile(auditFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		t.log.Warn().Err(err).Msg("crossSpaceMove: error opening audit log")
+		return
+	}
+	defer f.Close()
+	f.Write(append(line, '\n'))
 }
 
 func (t *Tree) Propagate(ctx context.Context, n *node.Node, sizeDiff int64) (err error) {
