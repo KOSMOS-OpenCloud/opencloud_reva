@@ -84,9 +84,10 @@ type IDResolver interface {
 }
 
 type scanItem struct {
-	Path          string
-	Recurse       bool
-	RefreshParent bool
+	Path           string
+	Recurse        bool
+	RefreshParent  bool
+	SuppressEvents bool // true for IDCache re-population (reindex, listing) — don't fire UploadReady
 }
 
 // Tree manages a hierarchical tree
@@ -144,7 +145,7 @@ func New(lu node.PathLookup, bs node.Blobstore, um usermapper.Mapper, trashbin *
 	// Wire on-the-fly assimilation into the lookup so that
 	// MOVE/GET/DELETE get the same self-healing as ListFolder.
 	t.lookup.OnIDCacheMiss = func(path string) error {
-		return t.assimilate(scanItem{Path: path})
+		return t.assimilate(scanItem{Path: path, SuppressEvents: true})
 	}
 	if err := t.checkStorage(); err != nil {
 		return nil, errors.Wrap(err, "tree: unfit storage '"+o.Root+"'")
@@ -630,7 +631,7 @@ func (t *Tree) ListFolder(ctx context.Context, n *node.Node) ([]*node.Node, erro
 					}
 					// we don't know about this node yet, assimilate it on the fly
 					t.log.Info().Err(err).Str("path", path).Msg("encountered unknown entity while listing the directory. Assimilate.")
-					err = t.assimilateFunc(scanItem{Path: path})
+					err = t.assimilateFunc(scanItem{Path: path, SuppressEvents: true})
 					if err != nil {
 						t.log.Error().Err(err).Str("path", path).Msg("failed to assimilate node")
 						continue
