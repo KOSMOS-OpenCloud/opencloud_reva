@@ -2041,7 +2041,7 @@ func metadataKeyOf(n *xml.Name) string {
 			// Standard oc: properties need the full URI to match the keys
 			// defined in decomposedfs/node (e.g. ChecksumsKey, FavoriteKey).
 			switch n.Local {
-			case "checksums", "favorite":
+			case "checksums", "favorite", "audio", "location", "image", "photo":
 				return fmt.Sprintf("%s/%s", n.Space, n.Local)
 			default:
 				// Custom metadata (e.g. "oy.fileReference") uses the local
