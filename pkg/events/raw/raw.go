@@ -191,6 +191,11 @@ func (s *RawStream) Consume(group string, evs ...events.Unmarshaller) (<-chan Ev
 }
 
 func (s *RawStream) consumeRaw(group string) (<-chan RawEvent, error) {
+	// Delete existing durable consumer so DeliverNewPolicy takes effect
+	// from NOW, not from the old consumer's LastDelivered position.
+	// Without this, a restart replays all unacked messages → NATS flood.
+	_ = s.js.DeleteConsumer(context.Background(), group)
+
 	consumer, err := s.js.CreateOrUpdateConsumer(context.Background(), jetstream.ConsumerConfig{
 		Durable:       group,
 		DeliverPolicy: jetstream.DeliverNewPolicy,
