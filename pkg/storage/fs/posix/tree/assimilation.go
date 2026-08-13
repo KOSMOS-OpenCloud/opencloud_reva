@@ -593,44 +593,17 @@ func (t *Tree) assimilate(item scanItem) error {
 			}
 		} else {
 			// This item had already been assimilated in the past. Update the path
+			// No event — the file is not new, only the IDCache entry was missing.
 			t.log.Debug().Str("path", item.Path).Msg("updating cached path")
 			if err := t.lookup.CacheID(context.Background(), spaceID, id, item.Path); err != nil {
 				t.log.Error().Err(err).Str("spaceID", spaceID).Str("id", id).Str("path", item.Path).Msg("could not cache id")
 			}
 
-			fi, attrs, err := t.updateFile(item.Path, id, spaceID, fi)
+			fi, _, err := t.updateFile(item.Path, id, spaceID, fi)
 			if err != nil {
 				return err
 			}
-
-			if !fi.IsDir() {
-				ref := &provider.Reference{
-					ResourceId: &provider.ResourceId{
-						StorageId: t.options.MountID,
-						SpaceId:   spaceID,
-						OpaqueId:  id,
-					},
-				}
-				parentResourceID := &provider.ResourceId{
-					StorageId: t.options.MountID,
-					SpaceId:   ref.ResourceId.SpaceId,
-					OpaqueId:  string(attrs[prefixes.ParentidAttr]),
-				}
-				if fi.Size() == 0 {
-					t.PublishEvent(events.FileTouched{
-						Ref:       ref,
-						ParentID:  parentResourceID,
-						Timestamp: utils.TSNow(),
-					})
-				} else {
-					t.PublishEvent(events.UploadReady{
-						FileRef:   ref,
-						ParentID:  parentResourceID,
-						Timestamp: utils.TSNow(),
-						IsVersion: true,
-					})
-				}
-			}
+			_ = fi
 		}
 	} else {
 		t.log.Debug().Str("path", item.Path).Msg("new item detected")
