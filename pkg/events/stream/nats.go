@@ -54,11 +54,15 @@ func NatsFromConfig(connName string, disableDurability bool, cfg NatsConfig) (ev
 		}
 	}
 
+	// OC_EVENTS_SYNC_PUBLISH: "true" (default) = blocking publish, waits for server ack.
+	// Set to "false" to use async publish — prevents NATS slowdowns from blocking all requests.
+	syncPublish := os.Getenv("OC_EVENTS_SYNC_PUBLISH") != "false"
+
 	opts := []natsjs.Option{
 		natsjs.TLSConfig(tlsConf),
 		natsjs.Address(cfg.Endpoint),
 		natsjs.ClusterID(cfg.Cluster),
-		natsjs.SynchronousPublish(true),
+		natsjs.SynchronousPublish(syncPublish),
 		natsjs.Name(connName),
 		natsjs.Authenticate(cfg.AuthUsername, cfg.AuthPassword),
 	}

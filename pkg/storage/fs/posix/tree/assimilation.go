@@ -415,7 +415,11 @@ func (t *Tree) generateTempNodeId(path string) string {
 	} else {
 		// Use sha256 if path too long
 		pathHash := fmt.Sprintf("%x", sha256.Sum256([]byte(path)))
-		t.log.Info().Str("path", path).Msg("path too long, using sha256 as lock: " + pathHash)
+		displayPath := path
+		if len(displayPath) > 1000 {
+			displayPath = displayPath[:1000] + "...(truncated)"
+		}
+		t.log.Info().Str("path", displayPath).Int("path_len", len(path)).Str("hash", pathHash).Msg("path too long for lock, using sha256")
 		return pathHash
 	}
 }
