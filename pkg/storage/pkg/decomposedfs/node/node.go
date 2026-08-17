@@ -562,6 +562,16 @@ func (n *Node) Child(ctx context.Context, name string) (*Node, error) {
 		SpaceRoot: n.SpaceRoot,
 	}
 
+	if n.ID == "" {
+		appctx.GetLogger(ctx).Warn().
+			Str("spaceid", spaceID).
+			Str("parentid", n.ParentID).
+			Str("parentName", n.Name).
+			Bool("parentExists", n.Exists).
+			Str("childName", name).
+			Msg("Child: called on node with empty ID")
+	}
+
 	nodeID, err := n.lu.NodeIDFromParentAndName(ctx, n, name)
 	switch {
 	case metadata.IsNotExist(err) || metadata.IsNotDir(err):
