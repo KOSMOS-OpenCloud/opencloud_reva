@@ -52,6 +52,7 @@ const (
 	GrantUserAcePrefix  string = OcisPrefix + "grant." + UserAcePrefix
 	GrantGroupAcePrefix string = OcisPrefix + "grant." + GroupAcePrefix
 	MetadataPrefix      string = OcisPrefix + "md."
+	OldIDsPrefix        string = OcisPrefix + "oldids."
 
 	// favorite flag, per user
 	FavPrefix string = OcisPrefix + "fav."
