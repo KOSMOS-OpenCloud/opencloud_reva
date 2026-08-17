@@ -1085,16 +1085,18 @@ func (n *Node) AsResourceInfo(ctx context.Context, rp *provider.ResourcePermissi
 		sublog.Error().Err(err).Msg("error getting list of extended attributes")
 	} else {
 		for key, value := range attrs {
-			// filter out non-custom properties
-			if !strings.HasPrefix(key, prefixes.MetadataPrefix) {
+			// custom metadata (user.oc.md.*)
+			if strings.HasPrefix(key, prefixes.MetadataPrefix) {
+				k := key[len(prefixes.MetadataPrefix):]
+				if _, ok := mdKeysMap[k]; returnAllMetadata || ok {
+					metadata[k] = string(value)
+				}
 				continue
 			}
-			// only read when key was requested
-			k := key[len(prefixes.MetadataPrefix):]
-			if _, ok := mdKeysMap[k]; returnAllMetadata || ok {
-				metadata[k] = string(value)
+			// cross-space move provenance (user.oc.oldids.*)
+			if strings.HasPrefix(key, prefixes.OldIDsPrefix) {
+				metadata[key] = string(value)
 			}
-
 		}
 	}
 	// kosmos debug: log custom metadata found

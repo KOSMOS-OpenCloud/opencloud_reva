@@ -56,6 +56,7 @@ const (
 	GrantUserAcePrefix  string = OcPrefix + "grant." + UserAcePrefix
 	GrantGroupAcePrefix string = OcPrefix + "grant." + GroupAcePrefix
 	MetadataPrefix      string = OcPrefix + "md."
+	OldIDsPrefix        string = OcPrefix + "oldids."
 
 	// SubspacesAttr stores the list of subspace node IDs on the space root.
 	// Value is JSON: [{"id":"nodeid","path":"/relative/path"}, ...]
