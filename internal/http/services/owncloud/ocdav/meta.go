@@ -150,6 +150,15 @@ func (h *MetaHandler) handlePathForUser(w http.ResponseWriter, r *http.Request, 
 		b, err := errors.Marshal(http.StatusNotFound, m, "", "")
 		errors.HandleWebdavError(&sublog, w, b, err)
 		return
+	case rpc.Code_CODE_OK:
+		if pathRes.Path == "" {
+			sublog.Debug().Msg("GetPath returned empty path, treating as not found")
+			w.WriteHeader(http.StatusNotFound)
+			m := fmt.Sprintf("Resource %s not found", id)
+			b, err := errors.Marshal(http.StatusNotFound, m, "", "")
+			errors.HandleWebdavError(&sublog, w, b, err)
+			return
+		}
 	}
 
 	propstatOK := propfind.PropstatXML{
