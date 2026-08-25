@@ -1,0 +1,80 @@
+publiccodeYmlVersion: "0.4"
+name: "Reva KOSMOS Edition"
+applicationSuite: "KOSMOS"
+url: "https://gitlab.opencode.de/kosmos/opencloud-reva"
+landingURL: "https://kosmos.technology/"
+softwareVersion: "2.47"
+releaseDate: "2026-08-25"
+platforms:
+  - "linux"
+categories:
+  - "knowledge-management"
+  - "document-management"
+developmentStatus: "stable"
+softwareType: "standalone/backend"
+description:
+  de:
+    genericName: "Storage-Backend"
+    shortDescription: "Storage- und Storage-Orchestrierungsschicht für die OpenCloud KOSMOS Edition mit Unveränderlichkeits-Regeln und Aktenzeichen-Metadaten."
+    longDescription: >
+      Reva ist die Storage- und Orchestrierungsschicht des OpenCore-Stacks
+      (OpenCloud + OpenCosmos) unter OpenCloud. Die KOSMOS Edition
+      erweitert Reva um Fähigkeiten, die für den revisionssicheren
+      Dokumentenbetrieb in der öffentlichen Verwaltung benötigt werden:
+
+      - Immutable Spaces: einmal geschriebene Dateien können nach Ablauf
+        einer Frist weder verändert noch gelöscht werden
+      - Aktenzeichen- und Metadaten-Mechanismen für die Anbindung an
+        Aktenpläne (DMS-Workflows)
+      - Erweitertes Gateway-Verhalten für die CS3-API, die OpenCloud
+        gegenüber dem Client bereitstellt
+      - Gelistetes Trash-Verhalten und Warm-up-Optimierungen
+
+      Der Betrieb erfolgt als Pod-Mitglied innerhalb des OpenCloud-Pods
+      (Podman/nuhost6) auf eigener Infrastruktur.
+    features:
+      - "Unveränderlicher Dateispeicher (Immutable Spaces)"
+      - "Aktenzeichen-Metadaten für DMS-Workflows"
+      - "CS3-Gateway für OpenCloud"
+      - "Betrieb auf eigener Infrastruktur (Podman/nuhost6)"
+  en:
+    genericName: "Storage Backend"
+    shortDescription: "Storage and orchestration layer for the OpenCloud KOSMOS Edition with immutability rules and file-plan metadata."
+    longDescription: >
+      Reva is the storage and orchestration layer of the OpenCore stack
+      (OpenCloud + OpenCosmos) beneath OpenCloud. The KOSMOS Edition
+      extends Reva with capabilities required for tamper-proof document
+      operation in public administration:
+
+      - Immutable Spaces: files that were written once can no longer be
+        modified or deleted after a retention period
+      - File-plan metadata mechanisms for DMS workflow integration
+      - Extended gateway behavior for the CS3 API that OpenCloud exposes
+        to clients
+      - Trash behavior and warm-up optimizations
+
+      It runs as a pod member inside the OpenCloud pod
+      (Podman/nuhost6) on own infrastructure.
+    features:
+      - "Tamper-proof immutable file storage"
+      - "File-plan metadata for DMS workflows"
+      - "CS3 gateway for OpenCloud"
+      - "Operation on own infrastructure (Podman/nuhost6)"
+intendedAudience:
+  countries:
+    - "de"
+  scope:
+    - "local-authorities"
+    - "government"
+legal:
+  license: "Apache-2.0"
+maintenance:
+  type: "community"
+  contacts:
+    - name: "KOSMOS"
+      email: "info@kosmos.technology"
+localisation:
+  localisationReady: true
+  availableLanguages:
+    - "de"
+    - "en"
