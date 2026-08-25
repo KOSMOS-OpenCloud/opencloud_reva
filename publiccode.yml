@@ -4,7 +4,7 @@ applicationSuite: "KOSMOS"
 url: "https://gitlab.opencode.de/kosmos/opencloud-reva"
 landingURL: "https://kosmos.technology/"
 softwareVersion: "2.47"
-logo: "logo.png"
+logo: "feature.png"
 releaseDate: "2026-08-25"
 platforms:
   - "linux"
@@ -38,6 +38,8 @@ description:
       - "Aktenzeichen-Metadaten für DMS-Workflows"
       - "CS3-Gateway für OpenCloud"
       - "Betrieb auf eigener Infrastruktur (Podman/nuhost6)"
+    screenshots:
+      - "feature.png"
   en:
     genericName: "Storage Backend"
     shortDescription: "Storage and orchestration layer for the OpenCloud KOSMOS Edition with immutability rules and file-plan metadata."
@@ -61,6 +63,8 @@ description:
       - "File-plan metadata for DMS workflows"
       - "CS3 gateway for OpenCloud"
       - "Operation on own infrastructure (Podman/nuhost6)"
+    screenshots:
+      - "feature.png"
 intendedAudience:
   countries:
     - "de"
