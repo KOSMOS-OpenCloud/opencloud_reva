@@ -4,6 +4,7 @@ applicationSuite: "KOSMOS"
 url: "https://gitlab.opencode.de/kosmos/opencloud-reva"
 landingURL: "https://kosmos.technology/"
 softwareVersion: "2.47"
+logo: "logo.png"
 releaseDate: "2026-08-25"
 platforms:
   - "linux"
