@@ -31,6 +31,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata/prefixes"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/node"
+	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/permissions"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/utils/ace"
 	"github.com/opencloud-eu/reva/v2/pkg/storagespace"
 	"github.com/opencloud-eu/reva/v2/pkg/utils"
@@ -392,6 +393,13 @@ func (fs *Decomposedfs) autoAddSubspace(ctx context.Context, n *node.Node) {
 	spaceType, err := n.SpaceRoot.XattrString(ctx, prefixes.SpaceTypeAttr)
 	if err != nil || spaceType != _spaceTypeProject {
 		log.Info().Str("nodeid", n.ID).Str("spaceType", spaceType).Msg("autoAddSubspace: skip (not project space)")
+		return
+	}
+	// Only a space manager (owner or manager role) may trigger subspace
+	// registration. This mirrors the explicit subspace.add path.
+	rp, err := fs.p.AssemblePermissions(ctx, n)
+	if err != nil || !permissions.IsManager(rp) {
+		log.Info().Str("nodeid", n.ID).Msg("autoAddSubspace: skip (not a space manager)")
 		return
 	}
 	// Already a subspace?
