@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	"github.com/opencloud-eu/reva/v2/internal/grpc/services/storageprovider"
 	"github.com/opencloud-eu/reva/v2/pkg/appctx"
@@ -387,13 +386,12 @@ func (fs *Decomposedfs) autoAddSubspace(ctx context.Context, n *node.Node) {
 		log.Info().Str("nodeid", n.ID).Msg("autoAddSubspace: skip (is space root)")
 		return
 	}
-	owner := n.Owner()
-	if owner == nil || owner.Type != userpb.UserType_USER_TYPE_SPACE_OWNER {
-		ownerType := int32(-1)
-		if owner != nil {
-			ownerType = int32(owner.Type)
-		}
-		log.Info().Str("nodeid", n.ID).Int32("ownerType", ownerType).Msg("autoAddSubspace: skip (not project space)")
+	// Only for project spaces. Check the space type directly — it is always
+	// set on the space root, unlike owner.type which may be missing (e.g.
+	// migrated spaces) and would wrongly skip subspace registration.
+	spaceType, err := n.SpaceRoot.XattrString(ctx, prefixes.SpaceTypeAttr)
+	if err != nil || spaceType != _spaceTypeProject {
+		log.Info().Str("nodeid", n.ID).Str("spaceType", spaceType).Msg("autoAddSubspace: skip (not project space)")
 		return
 	}
 	// Already a subspace?
