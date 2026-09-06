@@ -403,13 +403,17 @@ func (fs *Decomposedfs) storeGrant(ctx context.Context, n *node.Node, g *provide
 	if !ok && n.ID != n.SpaceRoot.ID {
 		actualSpaceType, err := n.SpaceRoot.XattrString(ctx, prefixes.SpaceTypeAttr)
 		if err == nil && actualSpaceType == _spaceTypeProject {
+			// The index value must be the space-root symlink path (same as
+			// updateIndexes uses), NOT the node ID. ResolveSpaceIDIndexEntry
+			// parses this to recover the space ID.
+			target := fs.tp.BuildSpaceIDIndexEntry(n.SpaceID)
 			switch g.Grantee.Type {
 			case provider.GranteeType_GRANTEE_TYPE_USER:
-				if err := fs.linkSpaceByUser(ctx, g.Grantee.GetUserId().GetOpaqueId(), n.SpaceID, n.ID); err != nil {
+				if err := fs.linkSpaceByUser(ctx, g.Grantee.GetUserId().GetOpaqueId(), n.SpaceID, target); err != nil {
 					appctx.GetLogger(ctx).Warn().Err(err).Str("spaceid", n.SpaceID).Msg("storeGrant: failed to link subspace grant by user")
 				}
 			case provider.GranteeType_GRANTEE_TYPE_GROUP:
-				if err := fs.linkSpaceByGroup(ctx, g.Grantee.GetGroupId().GetOpaqueId(), n.SpaceID, n.ID); err != nil {
+				if err := fs.linkSpaceByGroup(ctx, g.Grantee.GetGroupId().GetOpaqueId(), n.SpaceID, target); err != nil {
 					appctx.GetLogger(ctx).Warn().Err(err).Str("spaceid", n.SpaceID).Msg("storeGrant: failed to link subspace grant by group")
 				}
 			}
