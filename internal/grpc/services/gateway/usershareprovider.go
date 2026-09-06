@@ -550,7 +550,7 @@ func (s *svc) removeShare(ctx context.Context, req *collaboration.RemoveShareReq
 	// TODO: update wopi server
 	// FIXME This is a workaround that should prevent removing or changing the share permissions when the file is locked.
 	// https://github.com/owncloud/ocis/issues/8474
-	if status, err := s.checkShareLock(ctx, share); err != nil {
+	if status, err := s.checkLock(ctx, req.GetRef().GetId()); err != nil {
 		return &collaboration.RemoveShareResponse{
 			Status: status,
 		}, nil
