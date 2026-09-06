@@ -373,6 +373,29 @@ func (fs *Decomposedfs) storeGrant(ctx context.Context, n *node.Node, g *provide
 		return err
 	}
 
+	// If this is a grant on a subspace root (not the space root itself),
+	// the user/group still needs to be linked to the parent space so that
+	// the space appears in me/drives. updateIndexes() skips the user/group
+	// index for share grants, so we add it explicitly here.
+	if !ok && n.ID != n.SpaceRoot.ID {
+		if node.IsSubspaceID(n.ID, node.GetSubspaceList(ctx, n.SpaceRoot)) {
+			// Read the actual space type from the space root
+			actualSpaceType, err := n.SpaceRoot.XattrString(ctx, prefixes.SpaceTypeAttr)
+			if err == nil && actualSpaceType != "" {
+				switch g.Grantee.Type {
+				case provider.GranteeType_GRANTEE_TYPE_USER:
+					if err := fs.linkSpaceByUser(ctx, g.Grantee.GetUserId().GetOpaqueId(), n.SpaceID, n.ID); err != nil {
+						appctx.GetLogger(ctx).Warn().Err(err).Str("spaceid", n.SpaceID).Msg("storeGrant: failed to link subspace grant by user")
+					}
+				case provider.GranteeType_GRANTEE_TYPE_GROUP:
+					if err := fs.linkSpaceByGroup(ctx, g.Grantee.GetGroupId().GetOpaqueId(), n.SpaceID, n.ID); err != nil {
+						appctx.GetLogger(ctx).Warn().Err(err).Str("spaceid", n.SpaceID).Msg("storeGrant: failed to link subspace grant by group")
+					}
+				}
+			}
+		}
+	}
+
 	return fs.tp.Propagate(ctx, n, 0)
 }
 
