@@ -31,7 +31,6 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata/prefixes"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/node"
-	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/permissions"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/utils/ace"
 	"github.com/opencloud-eu/reva/v2/pkg/storagespace"
 	"github.com/opencloud-eu/reva/v2/pkg/utils"
@@ -395,11 +394,12 @@ func (fs *Decomposedfs) autoAddSubspace(ctx context.Context, n *node.Node) {
 		log.Info().Str("nodeid", n.ID).Str("spaceType", spaceType).Msg("autoAddSubspace: skip (not project space)")
 		return
 	}
-	// Only a space manager (owner or manager role) may trigger subspace
-	// registration. This mirrors the explicit subspace.add path.
-	rp, err := fs.p.AssemblePermissions(ctx, n)
-	if err != nil || !permissions.IsManager(rp) {
-		log.Info().Str("nodeid", n.ID).Msg("autoAddSubspace: skip (not a space manager)")
+	// Only a user with the OpenCloud "Manage space properties" right
+	// (Drives.ReadWrite) may trigger subspace registration. This checks the
+	// OpenCloud structured permission via the settings service, not the CS3
+	// RemoveGrant/IsManager check.
+	if !fs.p.ManageSpaceProperties(ctx, n.SpaceID) {
+		log.Info().Str("nodeid", n.ID).Str("spaceid", n.SpaceID).Msg("autoAddSubspace: skip (no manage space properties right)")
 		return
 	}
 	// Already a subspace?
