@@ -109,7 +109,7 @@ func (fs *Decomposedfs) AddGrant(ctx context.Context, ref *provider.Reference, g
 		switch {
 		case err != nil:
 			return err
-		case !rp.AddGrant:
+		case !rp.AddGrant && !fs.subspaceManagementBypass(ctx, grantNode):
 			f, _ := storagespace.FormatReference(ref)
 			if rp.Stat {
 				return errtypes.PermissionDenied(f)
@@ -223,7 +223,7 @@ func (fs *Decomposedfs) RemoveGrant(ctx context.Context, ref *provider.Reference
 		switch {
 		case err != nil:
 			return err
-		case !rp.RemoveGrant:
+		case !rp.RemoveGrant && !fs.subspaceManagementBypass(ctx, grantNode):
 			f, _ := storagespace.FormatReference(ref)
 			if rp.Stat {
 				return errtypes.PermissionDenied(f)

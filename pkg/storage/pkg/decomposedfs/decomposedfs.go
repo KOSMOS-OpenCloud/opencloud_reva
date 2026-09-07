@@ -973,7 +973,7 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 	switch {
 	case err != nil:
 		return nil, err
-	case !rp.Stat:
+	case !rp.Stat && !fs.subspaceManagementBypass(ctx, node):
 		f, _ := storagespace.FormatReference(ref)
 		return nil, errtypes.NotFound(f)
 	}
@@ -997,6 +997,17 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 	}
 
 	return md, nil
+}
+
+// subspaceManagementBypass returns true when the acting user has the global
+// ManageSpaceProperties permission for the node's space. Used to allow space
+// managers to stat folders they have no CS3 grant on (subspace management
+// without a permission walk).
+func (fs *Decomposedfs) subspaceManagementBypass(ctx context.Context, n *node.Node) bool {
+	if n == nil || n.SpaceID == "" {
+		return false
+	}
+	return fs.p.SubspaceManagement(ctx, n.SpaceID)
 }
 
 // ListFolder returns a list of resources in the specified folder

@@ -87,6 +87,14 @@ func (p Permissions) ManageSpaceProperties(ctx context.Context, spaceid string) 
 	return p.checkPermission(ctx, "Drives.ReadWrite", spaceRef(spaceid))
 }
 
+// SubspaceManagement returns true when the user may manage subspace members
+// (add/remove grants on subspace folders) without a CS3 grant walk.
+// This is the global ManageSpaceProperties permission, independent of the
+// node's grants.
+func (p Permissions) SubspaceManagement(ctx context.Context, spaceid string) bool {
+	return p.ManageSpaceProperties(ctx, spaceid)
+}
+
 // SpaceAbility returns true when the user is allowed to enable/disable the space
 func (p Permissions) SpaceAbility(ctx context.Context, spaceid string) bool {
 	return p.checkPermission(ctx, "Drives.ReadWriteEnabled", spaceRef(spaceid))
