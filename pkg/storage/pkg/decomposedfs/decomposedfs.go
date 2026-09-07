@@ -980,6 +980,16 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 
 	fs.subspaceGrantPermission(ctx, rp, node)
 
+	zerolog.Ctx(ctx).Info().
+		Str("nodeid", node.ID).Str("spaceid", node.SpaceID).
+		Bool("stat", rp.Stat).
+		Bool("addGrant", rp.AddGrant).
+		Bool("removeGrant", rp.RemoveGrant).
+		Bool("createContainer", rp.CreateContainer).
+		Bool("initiateFileUpload", rp.InitiateFileUpload).
+		Bool("delete", rp.Delete).
+		Msg("subspace-debug: GetMD permissions after subspaceGrantPermission")
+
 	md, err := node.AsResourceInfo(ctx, rp, mdKeys, fieldMask, utils.IsRelativeReference(ref))
 	if err != nil {
 		return nil, err
