@@ -970,7 +970,6 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 	}
 
 	rp, err := fs.p.AssemblePermissions(ctx, node)
-	spaceManagerBypass := false
 	switch {
 	case err != nil:
 		return nil, err
@@ -981,7 +980,6 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 			f, _ := storagespace.FormatReference(ref)
 			return nil, errtypes.NotFound(f)
 		}
-		spaceManagerBypass = true
 	}
 
 	md, err := node.AsResourceInfo(ctx, rp, mdKeys, fieldMask, utils.IsRelativeReference(ref))
@@ -997,9 +995,7 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 		}
 	}
 	if addSpace {
-		// When the space-manager bypass was used, skip the redundant permission
-		// check in StorageSpaceFromNode (it would fail because rp.Stat is false).
-		if md.Space, err = fs.StorageSpaceFromNode(ctx, node, !spaceManagerBypass); err != nil {
+		if md.Space, err = fs.StorageSpaceFromNode(ctx, node, true); err != nil {
 			return nil, err
 		}
 	}
