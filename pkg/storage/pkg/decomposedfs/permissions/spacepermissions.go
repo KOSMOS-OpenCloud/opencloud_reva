@@ -4,6 +4,7 @@ import (
 	"context"
 
 	userv1beta1 "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
+	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
 	cs3permissions "github.com/cs3org/go-cs3apis/cs3/permissions/v1beta1"
 	v1beta11 "github.com/cs3org/go-cs3apis/cs3/rpc/v1beta1"
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
@@ -55,6 +56,17 @@ func NewPermissions(item PermissionsChecker, permissionsSelector pool.Selectable
 func (p Permissions) AssemblePermissions(ctx context.Context, n *node.Node) (*provider.ResourcePermissions, error) {
 	ctx, span := tracer.Start(ctx, "AssemblePermissions")
 	defer span.End()
+
+	// For project spaces (SPACE_OWNER), check if the user has ManageSpaceProperties
+	// (Drives.ReadWrite) via the permissions service. If so, grant full manager
+	// permissions — this bypasses the CS3 grant walk which may not find the user
+	// if they are a space manager through an OpenCloud role rather than a grant.
+	if n.Owner() != nil && n.Owner().Type == userpb.UserType_USER_TYPE_SPACE_OWNER {
+		if p.ManageSpaceProperties(ctx, n.SpaceID) {
+			return node.OwnerPermissions(), nil
+		}
+	}
+
 	return p.item.AssemblePermissions(ctx, n)
 }
 
