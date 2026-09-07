@@ -41,6 +41,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	ctxpkg "github.com/opencloud-eu/reva/v2/pkg/ctx"
 	"github.com/opencloud-eu/reva/v2/pkg/errtypes"
@@ -1027,28 +1028,20 @@ func (fs *Decomposedfs) subspaceManagementBypass(ctx context.Context, n *node.No
 // CreateShare path re-checks the stat'd resource: it requires "AddGrant" and
 // calls SufficientCS3Permissions, which demands that every permission the new
 // grant carries is also present on the creator's permission set. A space
-// manager may grant any role to subspace members, and after the folder is a
-// registered subspace no resolvable CS3 grant gives those rights. So grant the
-// full permission set on the stat result for a space manager, letting them
-// add/remove subspace members (any role) without a CS3 grant walk.
+// manager may grant any role to subspace members, so grant ALL permissions on
+// the stat result — SufficientCS3Permissions uses protobuf reflection over all
+// bool fields, and any missing field causes rejection.
 func (fs *Decomposedfs) subspaceGrantPermission(ctx context.Context, rp *provider.ResourcePermissions, n *node.Node) {
 	if rp == nil || !fs.subspaceManagementBypass(ctx, n) {
 		return
 	}
-	rp.Stat = true
-	rp.AddGrant = true
-	rp.RemoveGrant = true
-	rp.DenyGrant = true
-	rp.GetPath = true
-	rp.ListContainer = true
-	rp.ListRecycle = true
-	rp.RestoreRecycleItem = true
-	rp.GetQuota = true
-	rp.CreateContainer = true
-	rp.InitiateFileDownload = true
-	rp.InitiateFileUpload = true
-	rp.Move = true
-	rp.Delete = true
+	numFields := rp.ProtoReflect().Descriptor().Fields().Len()
+	for i := 0; i < numFields; i++ {
+		field := rp.ProtoReflect().Descriptor().Fields().Get(i)
+		if field.Kind() == protoreflect.BoolKind {
+			rp.ProtoReflect().Set(field, protoreflect.ValueOfBool(true))
+		}
+	}
 }
 
 // ListFolder returns a list of resources in the specified folder
