@@ -974,8 +974,12 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 	case err != nil:
 		return nil, err
 	case !rp.Stat:
-		f, _ := storagespace.FormatReference(ref)
-		return nil, errtypes.NotFound(f)
+		// Space managers (ManageSpaceProperties) can stat any node within
+		// the space, including subspace roots, without needing a CS3 grant.
+		if !fs.p.ManageSpaceProperties(ctx, node.SpaceID) {
+			f, _ := storagespace.FormatReference(ref)
+			return nil, errtypes.NotFound(f)
+		}
 	}
 
 	md, err := node.AsResourceInfo(ctx, rp, mdKeys, fieldMask, utils.IsRelativeReference(ref))
