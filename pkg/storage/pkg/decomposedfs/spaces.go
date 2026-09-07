@@ -949,7 +949,7 @@ func (fs *Decomposedfs) StorageSpaceFromNode(ctx context.Context, n *node.Node, 
 		switch {
 		case err != nil:
 			return nil, err
-		case !rp.Stat:
+		case !rp.Stat && !fs.subspaceManagementBypass(ctx, n):
 			return nil, errtypes.NotFound(fmt.Sprintf("space %s not found", n.GetID()))
 		}
 
