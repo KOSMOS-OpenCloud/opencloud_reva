@@ -443,10 +443,21 @@ func (fs *Decomposedfs) ListStorageSpaces(ctx context.Context, filter []*provide
 	for i := 0; i < numWorkers; i++ {
 		errg.Go(func() error {
 			for match := range work {
-				spaceID, err := fs.tp.ResolveSpaceIDIndexEntry(match[1])
+				entryKey := match[0] // key in the index map (spaceID or nodeID)
+				entryVal := match[1] // value (symlink path or bare node ID)
+				spaceID, err := fs.tp.ResolveSpaceIDIndexEntry(entryVal)
 				if err != nil {
-					appctx.GetLogger(ctx).Error().Err(err).Str("id", spaceID).Msg("resolve space id index entry, skipping")
-					continue
+					// Self-heal: entry value is a bare node ID (wrong format) instead
+					// of a symlink path. Read the node to find its actual space ID,
+					// then rebuild the index entry.
+					healNode, healErr := node.ReadNode(ctx, fs.lu, entryKey, entryKey, "", true, nil, true)
+					if healErr == nil && healNode.Exists && healNode.SpaceID != "" {
+						spaceID = healNode.SpaceID
+						appctx.GetLogger(ctx).Info().Str("nodeID", entryKey).Str("spaceID", spaceID).Msg("self-healed malformed space index entry")
+					} else {
+						appctx.GetLogger(ctx).Error().Err(err).Str("id", entryKey).Msg("resolve space id index entry, skipping")
+						continue
+					}
 				}
 
 				n, err := node.ReadNode(ctx, fs.lu, spaceID, spaceID, "", true, nil, true)
