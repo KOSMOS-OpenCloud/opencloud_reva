@@ -978,6 +978,8 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 		return nil, errtypes.NotFound(f)
 	}
 
+	fs.subspaceGrantPermission(ctx, rp, node)
+
 	md, err := node.AsResourceInfo(ctx, rp, mdKeys, fieldMask, utils.IsRelativeReference(ref))
 	if err != nil {
 		return nil, err
@@ -1008,6 +1010,22 @@ func (fs *Decomposedfs) subspaceManagementBypass(ctx context.Context, n *node.No
 		return false
 	}
 	return fs.p.SubspaceManagement(ctx, n.SpaceID)
+}
+
+// subspaceGrantPermission augments a resource's permission set when the acting
+// user manages the space via the global ManageSpaceProperties permission. The
+// CreateShare path re-checks "AddGrant" on the stat'd resource, so a space
+// manager adding a 2nd/3rd subspace member (after the folder is already a
+// registered subspace and no resolvable CS3 grant gives AddGrant) would be
+// denied. Granting AddGrant/RemoveGrant in the stat result lets the space
+// manager add/remove subspace members without a CS3 grant walk.
+func (fs *Decomposedfs) subspaceGrantPermission(ctx context.Context, rp *provider.ResourcePermissions, n *node.Node) {
+	if rp == nil || !fs.subspaceManagementBypass(ctx, n) {
+		return
+	}
+	rp.Stat = true
+	rp.AddGrant = true
+	rp.RemoveGrant = true
 }
 
 // ListFolder returns a list of resources in the specified folder
