@@ -105,20 +105,16 @@ func (fs *Decomposedfs) AddGrant(ctx context.Context, ref *provider.Reference, g
 	// However, if we are trying to edit an existing grant we do not have to check for permission if the user owns the grant
 	// TODO: find a better to check this
 	if len(grants) != 0 || (owner != nil && owner.OpaqueId != "" && (owner.OpaqueId != grantNode.SpaceID || owner.Type != 8)) {
-		// Space managers (ManageSpaceProperties) can manage grants on any node
-		// within the space, including subspace roots, without needing a CS3 grant.
-		if !fs.p.ManageSpaceProperties(ctx, grantNode.SpaceID) {
-			rp, err := fs.p.AssemblePermissions(ctx, grantNode)
-			switch {
-			case err != nil:
-				return err
-			case !rp.AddGrant:
-				f, _ := storagespace.FormatReference(ref)
-				if rp.Stat {
-					return errtypes.PermissionDenied(f)
-				}
-				return errtypes.NotFound(f)
+		rp, err := fs.p.AssemblePermissions(ctx, grantNode)
+		switch {
+		case err != nil:
+			return err
+		case !rp.AddGrant:
+			f, _ := storagespace.FormatReference(ref)
+			if rp.Stat {
+				return errtypes.PermissionDenied(f)
 			}
+			return errtypes.NotFound(f)
 		}
 	}
 
@@ -221,9 +217,8 @@ func (fs *Decomposedfs) RemoveGrant(ctx context.Context, ref *provider.Reference
 		return errtypes.NotFound("grant not found")
 	}
 
-	// you are allowed to remove grants if you created them yourself, have the proper
-	// permission, or are a space manager (ManageSpaceProperties)
-	if !utils.UserIDEqual(grant.Creator, ctxpkg.ContextMustGetUser(ctx).GetId()) && !fs.p.ManageSpaceProperties(ctx, grantNode.SpaceID) {
+	// you are allowed to remove grants if you created them yourself or have the proper permission
+	if !utils.UserIDEqual(grant.Creator, ctxpkg.ContextMustGetUser(ctx).GetId()) {
 		rp, err := fs.p.AssemblePermissions(ctx, grantNode)
 		switch {
 		case err != nil:
@@ -242,22 +237,8 @@ func (fs *Decomposedfs) RemoveGrant(ctx context.Context, ref *provider.Reference
 	}
 
 	if isShareGrant(ctx) {
-		// For share grants on a non-root node in a project space, remove the
-		// user/group from the space index if no other grants remain on the node.
-		// This is the inverse of the linkSpaceByUser/Group in storeGrant.
-		if grantNode.ID != grantNode.SpaceRoot.ID {
-			if actualSpaceType, err := grantNode.SpaceRoot.XattrString(ctx, prefixes.SpaceTypeAttr); err == nil && actualSpaceType == _spaceTypeProject {
-				remaining, err := grantNode.ListGrants(ctx)
-				if err == nil && len(remaining) == 0 {
-					switch g.Grantee.Type {
-					case provider.GranteeType_GRANTEE_TYPE_USER:
-						_ = fs.userSpaceIndex.Remove(g.Grantee.GetUserId().GetOpaqueId(), grantNode.SpaceID)
-					case provider.GranteeType_GRANTEE_TYPE_GROUP:
-						_ = fs.groupSpaceIndex.Remove(g.Grantee.GetGroupId().GetOpaqueId(), grantNode.SpaceID)
-					}
-				}
-			}
-		}
+		// do not invalidate by user or group indexes
+		// FIXME we should invalidate the by-type index, but that requires reference counting
 	} else {
 		// invalidate space grant
 		switch g.Grantee.Type {
@@ -307,9 +288,8 @@ func (fs *Decomposedfs) UpdateGrant(ctx context.Context, ref *provider.Reference
 		return errtypes.NotFound(g.Grantee.GetUserId().GetOpaqueId())
 	}
 
-	// You may update a grant when you have the UpdateGrant permission, created the grant,
-	// or are a space manager (ManageSpaceProperties)
-	if !utils.UserIDEqual(grant.Creator, ctxpkg.ContextMustGetUser(ctx).GetId()) && !fs.p.ManageSpaceProperties(ctx, grantNode.SpaceID) {
+	// You may update a grant when you have the UpdateGrant permission or created the grant (regardless what your permissions are now)
+	if !utils.UserIDEqual(grant.Creator, ctxpkg.ContextMustGetUser(ctx).GetId()) {
 		rp, err := fs.p.AssemblePermissions(ctx, grantNode)
 		switch {
 		case err != nil:
@@ -393,24 +373,24 @@ func (fs *Decomposedfs) storeGrant(ctx context.Context, n *node.Node, g *provide
 		return err
 	}
 
-	// If this is a share grant on a non-root node (subspace member),
+	// If this is a grant on a subspace root (not the space root itself),
 	// the user/group still needs to be linked to the parent space so that
 	// the space appears in me/drives. updateIndexes() skips the user/group
 	// index for share grants, so we add it explicitly here.
-	// We do this for ALL non-root share grants in project spaces — the node
-	// may or may not already be registered as a subspace (autoAddSubspace
-	// runs after storeGrant for new subspaces).
 	if !ok && n.ID != n.SpaceRoot.ID {
-		actualSpaceType, err := n.SpaceRoot.XattrString(ctx, prefixes.SpaceTypeAttr)
-		if err == nil && actualSpaceType == _spaceTypeProject {
-			switch g.Grantee.Type {
-			case provider.GranteeType_GRANTEE_TYPE_USER:
-				if err := fs.linkSpaceByUser(ctx, g.Grantee.GetUserId().GetOpaqueId(), n.SpaceID, n.ID); err != nil {
-					appctx.GetLogger(ctx).Warn().Err(err).Str("spaceid", n.SpaceID).Msg("storeGrant: failed to link subspace grant by user")
-				}
-			case provider.GranteeType_GRANTEE_TYPE_GROUP:
-				if err := fs.linkSpaceByGroup(ctx, g.Grantee.GetGroupId().GetOpaqueId(), n.SpaceID, n.ID); err != nil {
-					appctx.GetLogger(ctx).Warn().Err(err).Str("spaceid", n.SpaceID).Msg("storeGrant: failed to link subspace grant by group")
+		if node.IsSubspaceID(n.ID, node.GetSubspaceList(ctx, n.SpaceRoot)) {
+			// Read the actual space type from the space root
+			actualSpaceType, err := n.SpaceRoot.XattrString(ctx, prefixes.SpaceTypeAttr)
+			if err == nil && actualSpaceType != "" {
+				switch g.Grantee.Type {
+				case provider.GranteeType_GRANTEE_TYPE_USER:
+					if err := fs.linkSpaceByUser(ctx, g.Grantee.GetUserId().GetOpaqueId(), n.SpaceID, n.ID); err != nil {
+						appctx.GetLogger(ctx).Warn().Err(err).Str("spaceid", n.SpaceID).Msg("storeGrant: failed to link subspace grant by user")
+					}
+				case provider.GranteeType_GRANTEE_TYPE_GROUP:
+					if err := fs.linkSpaceByGroup(ctx, g.Grantee.GetGroupId().GetOpaqueId(), n.SpaceID, n.ID); err != nil {
+						appctx.GetLogger(ctx).Warn().Err(err).Str("spaceid", n.SpaceID).Msg("storeGrant: failed to link subspace grant by group")
+					}
 				}
 			}
 		}
