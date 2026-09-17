@@ -853,10 +853,11 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 		return errors.Wrap(err, "crossSpaceMove: error copying metadata")
 	}
 
-	// 4. Set correct parent, name, blobid, blobsize on new node
+	// 4. Set correct parent, name, id, blobid, blobsize on new node
 	attribs := node.Attributes{}
 	attribs.SetString(prefixes.ParentidAttr, newNode.ParentID)
 	attribs.SetString(prefixes.NameAttr, newNode.Name)
+	attribs.SetString(prefixes.IDAttr, newNode.ID)
 	attribs.SetString(prefixes.BlobIDAttr, newNode.BlobID)
 	attribs.SetInt64(prefixes.BlobsizeAttr, newNode.Blobsize)
 	if err := newNode.SetXattrsWithContext(ctx, attribs, true); err != nil {
