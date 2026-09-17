@@ -913,11 +913,14 @@ func (fs *Decomposedfs) updateIndexes(ctx context.Context, grantee *provider.Gra
 	if err != nil {
 		return err
 	}
-	if isShareGrant(ctx) {
+	if isShareGrant(ctx) && nodeID == spaceID {
+		// Normal share on a space root: skip user/group index (existing behavior).
 		// FIXME we should count the references for the by-type index currently removing the second share from the same
 		// space cannot determine if the by-type should be deletet, which is why we never delete them ...
 		return nil
 	}
+	// Subspace grants (nodeID != spaceID) fall through so the root space
+	// appears in the grantee's space list (ListStorageSpaces).
 
 	// create space grant index
 	switch grantee.Type {

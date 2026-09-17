@@ -236,8 +236,23 @@ func (fs *Decomposedfs) RemoveGrant(ctx context.Context, ref *provider.Reference
 		return err
 	}
 
-	if isShareGrant(ctx) {
-		// do not invalidate by user or group indexes
+	if isShareGrant(ctx) && grantNode.ID != grantNode.SpaceID {
+		// Subspace grant removed. Remove the space from the grantee's
+		// index only if no grants remain in any other subspace.
+		if !fs.granteeHasRemainingSubspaceGrants(ctx, grantNode, g) {
+			switch g.Grantee.Type {
+			case provider.GranteeType_GRANTEE_TYPE_USER:
+				if err := fs.userSpaceIndex.Remove(g.Grantee.GetUserId().GetOpaqueId(), grantNode.SpaceID); err != nil {
+					appctx.GetLogger(ctx).Warn().Err(err).Msg("RemoveGrant: failed to remove user space index entry")
+				}
+			case provider.GranteeType_GRANTEE_TYPE_GROUP:
+				if err := fs.groupSpaceIndex.Remove(g.Grantee.GetGroupId().GetOpaqueId(), grantNode.SpaceID); err != nil {
+					appctx.GetLogger(ctx).Warn().Err(err).Msg("RemoveGrant: failed to remove group space index entry")
+				}
+			}
+		}
+	} else if isShareGrant(ctx) {
+		// Normal share on space root: do not invalidate by user or group indexes
 		// FIXME we should invalidate the by-type index, but that requires reference counting
 	} else {
 		// invalidate space grant
@@ -442,4 +457,45 @@ func (fs *Decomposedfs) autoRemoveSubspace(ctx context.Context, n *node.Node) {
 	if err := node.RemoveSubspace(ctx, n.SpaceRoot, n.ID); err != nil {
 		appctx.GetLogger(ctx).Warn().Err(err).Str("nodeid", n.ID).Msg("autoRemoveSubspace: failed")
 	}
+}
+
+// granteeHasRemainingSubspaceGrants checks whether the grantee still has
+// grants in any subspace of the same space (other than the node whose grant
+// was just removed). Used by RemoveGrant to decide if the space should be
+// removed from the grantee's user/group index.
+func (fs *Decomposedfs) granteeHasRemainingSubspaceGrants(ctx context.Context, removedNode *node.Node, g *provider.Grant) bool {
+	subspaces := node.GetSubspaceList(ctx, removedNode.SpaceRoot)
+	if len(subspaces) == 0 {
+		return false
+	}
+
+	var granteePrincipal string
+	switch g.Grantee.Type {
+	case provider.GranteeType_GRANTEE_TYPE_USER:
+		granteePrincipal = prefixes.GrantPrefix + "u:" + g.Grantee.GetUserId().GetOpaqueId()
+	case provider.GranteeType_GRANTEE_TYPE_GROUP:
+		granteePrincipal = prefixes.GrantPrefix + "g:" + g.Grantee.GetGroupId().GetOpaqueId()
+	default:
+		return false
+	}
+
+	for _, ss := range subspaces {
+		if ss.ID == removedNode.ID {
+			continue // skip the subspace we just removed the grant from
+		}
+		subNode, err := node.ReadNode(ctx, fs.lu, removedNode.SpaceID, ss.ID, "", false, nil, false)
+		if err != nil || subNode == nil || !subNode.Exists {
+			continue
+		}
+		grantees, err := subNode.ListGrantees(ctx)
+		if err != nil {
+			continue
+		}
+		for _, granteeKey := range grantees {
+			if granteeKey == granteePrincipal {
+				return true
+			}
+		}
+	}
+	return false
 }
