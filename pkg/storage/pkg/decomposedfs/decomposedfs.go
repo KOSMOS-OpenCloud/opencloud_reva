@@ -1079,6 +1079,11 @@ func (fs *Decomposedfs) ListFolder(ctx context.Context, ref *provider.Reference,
 		return nil, err
 	}
 
+	// Subspace navigation filter: if the user only has subspace-navigation
+	// permissions (Stat+GetPath+ListContainer but nothing else), restrict
+	// the listing to children that are on the path to a subspace.
+	children = fs.filterChildrenForSubspaceNavigation(ctx, n, children, rp)
+
 	// Cache parent's immutable state in context so children skip redundant Parent() xattr reads
 	ctx = node.ContextWithParentImmutable(ctx, n.IsImmutable(ctx))
 
@@ -1144,6 +1149,45 @@ func (fs *Decomposedfs) ListFolder(ctx context.Context, ref *provider.Reference,
 	}
 
 	return finfos, nil
+}
+
+// filterChildrenForSubspaceNavigation restricts a directory listing to
+// children on the path to a subspace. This is only applied when the user
+// has subspace-navigation-only permissions (no real grants on this node or
+// its ancestors — only the synthetic Stat+GetPath+ListContainer fallback).
+func (fs *Decomposedfs) filterChildrenForSubspaceNavigation(ctx context.Context, parent *node.Node, children []*node.Node, rp *provider.ResourcePermissions) []*node.Node {
+	// Only filter when the user has exactly the subspace-navigation permission set.
+	// If they have any other permission (e.g. InitiateFileDownload, CreateContainer),
+	// they have real grants and should see everything.
+	if rp.InitiateFileDownload || rp.InitiateFileUpload || rp.CreateContainer ||
+		rp.Delete || rp.AddGrant || rp.Move || rp.GetQuota {
+		return children
+	}
+	if !rp.Stat || !rp.ListContainer {
+		return children
+	}
+
+	subspaces := node.GetSubspaceList(ctx, parent.SpaceRoot)
+	if len(subspaces) == 0 {
+		return children
+	}
+
+	// Build the path of the parent node relative to space root.
+	parentPath, err := fs.lu.Path(ctx, parent, func(_ *node.Node) bool { return true })
+	if err != nil {
+		return children // fallback: no filtering on error
+	}
+
+	// Keep only children whose path is an ancestor of (or equal to) a subspace path,
+	// or that are inside a subspace (subspace path is ancestor of child path).
+	filtered := make([]*node.Node, 0, len(children))
+	for _, child := range children {
+		childPath := filepath.Join(parentPath, child.Name)
+		if node.IsAncestorOfSubspace(childPath, subspaces) || node.IsInsideSubspace(childPath, subspaces) {
+			filtered = append(filtered, child)
+		}
+	}
+	return filtered
 }
 
 // AddLabel adds a favorite

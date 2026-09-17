@@ -167,6 +167,16 @@ func IsAncestorOfSubspace(nodePath string, subspaces []SubspaceEntry) bool {
 	return false
 }
 
+// IsInsideSubspace checks if the given path is inside (or equal to) any subspace path.
+func IsInsideSubspace(nodePath string, subspaces []SubspaceEntry) bool {
+	for _, ss := range subspaces {
+		if strings.HasPrefix(nodePath, ss.Path+"/") || nodePath == ss.Path {
+			return true
+		}
+	}
+	return false
+}
+
 // UserHasGrantInSubspaces checks if the user has any grant in the given subspace nodes.
 // This requires reading grants from each subspace node — should only be called for Fall 2.
 func UserHasGrantInSubspaces(ctx context.Context, spaceRoot *Node, subspaces []SubspaceEntry, lu NodeLookup) bool {
