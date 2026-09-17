@@ -62,6 +62,40 @@ var _ = Describe("Subspace helpers", func() {
 		})
 	})
 
+	Describe("IsInsideSubspace", func() {
+		var subspaces []node.SubspaceEntry
+
+		BeforeEach(func() {
+			subspaces = []node.SubspaceEntry{
+				{ID: "n1", Path: "/finance/budget"},
+				{ID: "n2", Path: "/hr"},
+			}
+		})
+
+		It("returns true for exact subspace path", func() {
+			Expect(node.IsInsideSubspace("/finance/budget", subspaces)).To(BeTrue())
+			Expect(node.IsInsideSubspace("/hr", subspaces)).To(BeTrue())
+		})
+
+		It("returns true for path inside a subspace", func() {
+			Expect(node.IsInsideSubspace("/finance/budget/2026", subspaces)).To(BeTrue())
+			Expect(node.IsInsideSubspace("/hr/employees", subspaces)).To(BeTrue())
+		})
+
+		It("returns false for ancestor of subspace", func() {
+			Expect(node.IsInsideSubspace("/finance", subspaces)).To(BeFalse())
+		})
+
+		It("returns false for path outside all subspaces", func() {
+			Expect(node.IsInsideSubspace("/legal", subspaces)).To(BeFalse())
+			Expect(node.IsInsideSubspace("/finance/taxes", subspaces)).To(BeFalse())
+		})
+
+		It("returns false for empty list", func() {
+			Expect(node.IsInsideSubspace("/anything", nil)).To(BeFalse())
+		})
+	})
+
 	Describe("FindAncestorSubspace", func() {
 		It("returns nil for empty list", func() {
 			n := &node.Node{}
