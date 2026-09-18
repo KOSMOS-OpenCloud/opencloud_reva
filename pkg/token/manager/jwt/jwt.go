@@ -123,12 +123,13 @@ func (m *manager) DismantleToken(ctx context.Context, tkn string) (*user.User, m
 	token, err := jwt.ParseWithClaims(tkn, &claims{}, keyfunc, jwt.WithLeeway(time.Duration(m.conf.tokenTimeLeeway)*time.Second))
 
 	if err != nil {
-		// Debug: log the exact JWT validation error, token algorithm and length
-		tknAlg := ""
-		if len(tkn) > 20 {
-			tknAlg = tkn[:20]
+		if os.Getenv("DISMANTLE_DEBUG") == "true" {
+			tknPrefix := ""
+			if len(tkn) > 20 {
+				tknPrefix = tkn[:20]
+			}
+			fmt.Fprintf(os.Stderr, "[dismantle-debug] err=%v tkn_len=%d tkn_prefix=%q secret_len=%d\n", err, len(tkn), tknPrefix, len(m.conf.Secret))
 		}
-		fmt.Fprintf(os.Stderr, "[dismantle-debug] err=%v tkn_len=%d tkn_prefix=%q secret_len=%d\n", err, len(tkn), tknAlg, len(m.conf.Secret))
 		return nil, nil, errors.Wrap(err, "error parsing token")
 	}
 
