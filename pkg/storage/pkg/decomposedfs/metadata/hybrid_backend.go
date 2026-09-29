@@ -18,6 +18,7 @@ import (
 	"github.com/rogpeppe/go-internal/lockedfile"
 	"github.com/vmihailenco/msgpack/v5"
 
+	"github.com/opencloud-eu/reva/v2/pkg/appctx"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/cache"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata/prefixes"
 )
@@ -176,6 +177,18 @@ func (b HybridBackend) getAll(ctx context.Context, n MetadataNode, skipCache, sk
 		var val []byte
 		if val, xerr = xattr.Get(path, name); xerr != nil && !IsAttrUnset(xerr) {
 			xerrs++
+			if xerr, ok := xerr.(*xattr.Error); ok {
+				if errno, ok2 := xerr.Err.(syscall.Errno); ok2 {
+					log := appctx.GetLogger(ctx)
+					log.Error().
+						Str("path", path).
+						Str("attr", name).
+						Int("errno", int(errno)).
+						Str("errno_str", errno.Error()).
+						Int("attrCount", len(attrNames)).
+						Msg("getAll: xattr.Get failed with non-ENOATTR error")
+				}
+			}
 		} else {
 			attribs[name] = val
 		}

@@ -810,8 +810,21 @@ func (s *Service) Delete(ctx context.Context, req *provider.DeleteRequest) (*pro
 
 func (s *Service) Move(ctx context.Context, req *provider.MoveRequest) (*provider.MoveResponse, error) {
 	ctx = ctxpkg.ContextSetLockID(ctx, req.LockId)
+	log := appctx.GetLogger(ctx)
+
+	log.Info().
+		Str("source", req.Source.String()).
+		Str("destination", req.Destination.String()).
+		Msg("MOVE: starting")
 
 	err := s.Storage.Move(ctx, req.Source, req.Destination)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("source", req.Source.String()).
+			Str("destination", req.Destination.String()).
+			Msg("MOVE: failed")
+	}
 
 	return &provider.MoveResponse{
 		Status: status.NewStatusFromErrType(ctx, "move", err),

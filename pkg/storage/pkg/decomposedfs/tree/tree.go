@@ -790,11 +790,17 @@ func (t *Tree) WriteBlob(node *node.Node, source string) error {
 // target space, copying the blob and metadata, then removing the source.
 // Only files are supported (not directories).
 func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *node.Node) error {
-	log := appctx.GetLogger(ctx)
+	log := appctx.GetLogger(ctx).With().
+		Str("source_space", oldNode.SpaceID).
+		Str("source_node", oldNode.ID).
+		Str("dest_space", newNode.SpaceID).
+		Logger()
 
 	if oldNode.IsDir(ctx) {
 		return errtypes.NotSupported("cross-space move of directories is not yet supported")
 	}
+
+	log.Info().Msg("crossSpaceMove: start")
 
 	// 1. Create new node in target space
 	if newNode.ID == "" {
@@ -804,21 +810,28 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 
 	nodePath := newNode.InternalPath()
 	if err := os.MkdirAll(filepath.Dir(nodePath), 0700); err != nil {
+		log.Error().Err(err).Str("path", nodePath).Msg("crossSpaceMove: step 1a MkdirAll failed")
 		return errors.Wrap(err, "crossSpaceMove: error creating target node dir")
 	}
+	log.Info().Str("nodePath", nodePath).Msg("crossSpaceMove: step 1a dir created")
 	if _, err := os.Create(nodePath); err != nil {
+		log.Error().Err(err).Str("path", nodePath).Msg("crossSpaceMove: step 1b os.Create failed")
 		return errors.Wrap(err, "crossSpaceMove: error creating target node")
 	}
+	log.Info().Str("nodePath", nodePath).Msg("crossSpaceMove: step 1b node created")
 
 	// 2. Copy blob
+	log.Info().Msg("crossSpaceMove: step 2 read source blob")
 	reader, err := t.ReadBlob(oldNode)
 	if err != nil {
+		log.Error().Err(err).Msg("crossSpaceMove: step 2 ReadBlob failed")
 		return errors.Wrap(err, "crossSpaceMove: error reading source blob")
 	}
 	// Write blob to a temp file, then upload
 	tmpFile, err := os.CreateTemp("", "crossmove-*")
 	if err != nil {
 		reader.Close()
+		log.Error().Err(err).Msg("crossSpaceMove: step 2a CreateTemp failed")
 		return errors.Wrap(err, "crossSpaceMove: error creating temp file")
 	}
 	tmpPath := tmpFile.Name()
@@ -827,20 +840,26 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 	if _, err := io.Copy(tmpFile, reader); err != nil {
 		tmpFile.Close()
 		reader.Close()
+		log.Error().Err(err).Str("tmpPath", tmpPath).Msg("crossSpaceMove: step 2b io.Copy failed")
 		return errors.Wrap(err, "crossSpaceMove: error copying blob to temp")
 	}
 	tmpFile.Close()
 	reader.Close()
+	log.Info().Int64("size", oldNode.Blobsize).Msg("crossSpaceMove: step 2b blob copied to temp")
 
 	// Set blob ID and size on new node
 	newNode.BlobID = uuid.New().String()
 	newNode.Blobsize = oldNode.Blobsize
 
+	log.Info().Str("tmpPath", tmpPath).Msg("crossSpaceMove: step 2c WriteBlob")
 	if err := t.WriteBlob(newNode, tmpPath); err != nil {
+		log.Error().Err(err).Msg("crossSpaceMove: step 2c WriteBlob failed")
 		return errors.Wrap(err, "crossSpaceMove: error writing target blob")
 	}
+	log.Info().Msg("crossSpaceMove: step 2c blob written")
 
 	// 3. Copy all metadata from old node to new node
+	log.Info().Msg("crossSpaceMove: step 3 CopyMetadata")
 	if err := t.lookup.CopyMetadata(ctx, oldNode, newNode, func(attributeName string, value []byte) (newValue []byte, copy bool) {
 		// Copy everything except parent-specific attributes
 		switch attributeName {
@@ -850,8 +869,10 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 			return value, true
 		}
 	}, true); err != nil {
+		log.Error().Err(err).Msg("crossSpaceMove: step 3 CopyMetadata failed")
 		return errors.Wrap(err, "crossSpaceMove: error copying metadata")
 	}
+	log.Info().Msg("crossSpaceMove: step 3 metadata copied")
 
 	// 4. Set correct parent, name, id, blobid, blobsize on new node
 	attribs := node.Attributes{}
@@ -860,49 +881,52 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 	attribs.SetString(prefixes.IDAttr, newNode.ID)
 	attribs.SetString(prefixes.BlobIDAttr, newNode.BlobID)
 	attribs.SetInt64(prefixes.BlobsizeAttr, newNode.Blobsize)
+	log.Info().Str("nodeID", newNode.ID).Str("parentID", newNode.ParentID).Str("name", newNode.Name).Msg("crossSpaceMove: step 4 SetXattrsWithContext")
 	if err := newNode.SetXattrsWithContext(ctx, attribs, true); err != nil {
+		log.Error().Err(err).Msg("crossSpaceMove: step 4 SetXattrsWithContext failed")
 		return errors.Wrap(err, "crossSpaceMove: error setting target node attributes")
 	}
+	log.Info().Msg("crossSpaceMove: step 4 xattrs set")
 
 	// 5. Create symlink in target parent
 	relativeNodePath := filepath.Join("../../../../../", lookup.Pathify(newNode.ID, 4, 2))
-	if err := os.Symlink(relativeNodePath, filepath.Join(newNode.ParentPath(), newNode.Name)); err != nil {
+	symlinkTarget := filepath.Join(newNode.ParentPath(), newNode.Name)
+	log.Info().Str("symlink", symlinkTarget).Str("target", relativeNodePath).Msg("crossSpaceMove: step 5 symlink")
+	if err := os.Symlink(relativeNodePath, symlinkTarget); err != nil {
+		log.Error().Err(err).Msg("crossSpaceMove: step 5 Symlink failed")
 		return errors.Wrap(err, "crossSpaceMove: error creating symlink")
 	}
+	log.Info().Msg("crossSpaceMove: step 5 symlink created")
 
 	// 6. Propagate size in target space
+	log.Info().Int64("size", newNode.Blobsize).Msg("crossSpaceMove: step 6 Propagate target")
 	if err := t.Propagate(ctx, newNode, newNode.Blobsize); err != nil {
-		log.Warn().Err(err).Msg("crossSpaceMove: error propagating target")
+		log.Warn().Err(err).Msg("crossSpaceMove: step 6 Propagate target failed (non-fatal)")
 	}
 
 	// 7. Remove source: symlink + node + blob
 	oldSymlink := filepath.Join(oldNode.ParentPath(), oldNode.Name)
+	log.Info().Str("oldSymlink", oldSymlink).Msg("crossSpaceMove: step 7 remove source")
 	if err := os.Remove(oldSymlink); err != nil {
-		log.Warn().Err(err).Msg("crossSpaceMove: error removing source symlink")
+		log.Warn().Err(err).Msg("crossSpaceMove: step 7a remove source symlink failed (non-fatal)")
 	}
 
 	// Propagate negative size in source space
 	if err := t.Propagate(ctx, oldNode, -oldNode.Blobsize); err != nil {
-		log.Warn().Err(err).Msg("crossSpaceMove: error propagating source")
+		log.Warn().Err(err).Msg("crossSpaceMove: step 7b Propagate source failed (non-fatal)")
 	}
 
 	// Delete source blob
 	if err := t.DeleteBlob(oldNode); err != nil {
-		log.Warn().Err(err).Msg("crossSpaceMove: error deleting source blob")
+		log.Warn().Err(err).Msg("crossSpaceMove: step 7c DeleteBlob failed (non-fatal)")
 	}
 
 	// Remove source node
 	if err := os.RemoveAll(oldNode.InternalPath()); err != nil {
-		log.Warn().Err(err).Msg("crossSpaceMove: error removing source node")
+		log.Warn().Err(err).Msg("crossSpaceMove: step 7d RemoveAll source node failed (non-fatal)")
 	}
 
-	log.Info().
-		Str("source_space", oldNode.SpaceID).
-		Str("target_space", newNode.SpaceID).
-		Str("name", newNode.Name).
-		Int64("size", newNode.Blobsize).
-		Msg("cross-space move completed")
-
+	log.Info().Msg("cross-space move completed")
 	return nil
 }
 

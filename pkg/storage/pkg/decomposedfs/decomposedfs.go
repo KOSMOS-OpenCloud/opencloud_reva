@@ -44,6 +44,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	ctxpkg "github.com/opencloud-eu/reva/v2/pkg/ctx"
+	"github.com/opencloud-eu/reva/v2/pkg/appctx"
 	"github.com/opencloud-eu/reva/v2/pkg/errtypes"
 	"github.com/opencloud-eu/reva/v2/pkg/events"
 	"github.com/opencloud-eu/reva/v2/pkg/logger"
@@ -855,17 +856,30 @@ func (fs *Decomposedfs) CreateReference(ctx context.Context, p string, targetURI
 func (fs *Decomposedfs) Move(ctx context.Context, oldRef, newRef *provider.Reference) (err error) {
 	ctx, span := tracer.Start(ctx, "Move")
 	defer span.End()
+	log := appctx.GetLogger(ctx)
 	var oldNode, newNode *node.Node
 	if oldNode, err = fs.lu.NodeFromResource(ctx, oldRef); err != nil {
+		log.Error().Err(err).Str("oldRef", oldRef.String()).Msg("MOVE: NodeFromResource(source) failed")
 		return
 	}
 
 	if !oldNode.Exists {
 		err = errtypes.NotFound(filepath.Join(oldNode.ParentID, oldNode.Name))
+		log.Error().Err(err).Str("parentID", oldNode.ParentID).Str("name", oldNode.Name).Msg("MOVE: source does not exist")
 		return
 	}
 
+	log.Info().
+		Str("source_space", oldNode.SpaceID).
+		Str("source_node", oldNode.ID).
+		Str("source_name", oldNode.Name).
+		Str("dest_space", newNode.SpaceID). // not resolved yet, will be empty
+		Msg("MOVE: resolved source node")
+
 	orp, err := fs.p.AssemblePermissions(ctx, oldNode)
+	if err != nil {
+		log.Error().Err(err).Str("source_space", oldNode.SpaceID).Str("source_node", oldNode.ID).Msg("MOVE: AssemblePermissions(source) failed")
+	}
 	switch {
 	case err != nil:
 		return err
@@ -897,25 +911,38 @@ func (fs *Decomposedfs) Move(ctx context.Context, oldRef, newRef *provider.Refer
 	}
 
 	if newNode, err = fs.lu.NodeFromResource(ctx, newRef); err != nil {
+		log.Error().Err(err).Str("newRef", newRef.String()).Msg("MOVE: NodeFromResource(dest) failed")
 		return
 	}
 	if newNode.Exists {
 		err = errtypes.AlreadyExists(filepath.Join(newNode.ParentID, newNode.Name))
+		log.Error().Err(err).Str("dest_space", newNode.SpaceID).Str("dest_name", newNode.Name).Msg("MOVE: destination already exists")
 		return
 	}
 
+	log.Info().
+		Str("dest_space", newNode.SpaceID).
+		Str("dest_node", newNode.ID).
+		Str("dest_name", newNode.Name).
+		Msg("MOVE: resolved dest node")
+
 	nrp, err := fs.p.AssemblePermissions(ctx, newNode)
+	if err != nil {
+		log.Error().Err(err).Str("dest_space", newNode.SpaceID).Str("dest_node", newNode.ID).Msg("MOVE: AssemblePermissions(dest) failed")
+	}
 	switch {
 	case err != nil:
 		return err
 	case oldNode.IsDir(ctx) && !nrp.CreateContainer:
 		f, _ := storagespace.FormatReference(newRef)
+		log.Error().Str("f", f).Msg("MOVE: dest lacks CreateContainer permission")
 		if nrp.Stat {
 			return errtypes.PermissionDenied(f)
 		}
 		return errtypes.NotFound(f)
 	case !oldNode.IsDir(ctx) && !nrp.InitiateFileUpload:
 		f, _ := storagespace.FormatReference(newRef)
+		log.Error().Str("f", f).Msg("MOVE: dest lacks InitiateFileUpload permission")
 		if nrp.Stat {
 			return errtypes.PermissionDenied(f)
 		}
@@ -925,6 +952,7 @@ func (fs *Decomposedfs) Move(ctx context.Context, oldRef, newRef *provider.Refer
 	// Immutable check on target parent
 	if newParent, err := newNode.Parent(ctx); err == nil && newParent.IsImmutable(ctx) {
 		f, _ := storagespace.FormatReference(newRef)
+		log.Error().Str("f", f).Msg("MOVE: target parent is immutable")
 		return errtypes.PermissionDenied(f)
 	}
 
@@ -933,10 +961,20 @@ func (fs *Decomposedfs) Move(ctx context.Context, oldRef, newRef *provider.Refer
 
 	// check lock on source
 	if err := oldNode.CheckLock(ctx); err != nil {
+		log.Error().Err(err).Msg("MOVE: source is locked")
 		return err
 	}
 
+	log.Info().
+		Str("source_space", oldNode.SpaceID).
+		Str("dest_space", newNode.SpaceID).
+		Msg("MOVE: calling tp.Move (tree move)")
+
 	if err := fs.tp.Move(ctx, oldNode, newNode); err != nil {
+		log.Error().Err(err).
+			Str("source_space", oldNode.SpaceID).
+			Str("dest_space", newNode.SpaceID).
+			Msg("MOVE: tp.Move failed")
 		return err
 	}
 
