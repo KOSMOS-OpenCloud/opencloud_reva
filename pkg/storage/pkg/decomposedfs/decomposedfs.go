@@ -873,7 +873,6 @@ func (fs *Decomposedfs) Move(ctx context.Context, oldRef, newRef *provider.Refer
 		Str("source_space", oldNode.SpaceID).
 		Str("source_node", oldNode.ID).
 		Str("source_name", oldNode.Name).
-		Str("dest_space", newNode.SpaceID). // not resolved yet, will be empty
 		Msg("MOVE: resolved source node")
 
 	orp, err := fs.p.AssemblePermissions(ctx, oldNode)
