@@ -279,4 +279,67 @@ Damit können wir im Production-Log prüfen:
 
 Die 1024-Byte-Offload-Schwelle ist konservativ für ext4 gewählt.
 Bei 2 KB wäre der Puffer auf ext4 zu eng, bei 4 KB riskant.
-      — verifiziert Hypothese B
+
+## UPDATE 2026-10-04: Offload-Limit 1KB → 2KB + Analyse der MOVE-Bug-Datei
+
+### Offload-Limit erhöht
+
+Btrfs hat kein 4KB xattr limit wie ext4. Die 1KB-Schwelle auf 2KB erhöht
+(commit `2f686b6`). Reduziert das Offload-Churn, das NOK_SIDE-Ukonsistenzen
+produziert hat.
+
+- Code: `posix.go:133` (`NewHybridBackend(2048, ...)`)
+- Deployed: Tag `20261004-1240`, Rev `kosmos-20261004-1240-oc-18d15f56-reva-2f686b6`
+
+### MOVE-Bug-Datei: Warum hatte sie einen Marker ohne funktionierendes .mpk?
+
+Die MOVE-Bug-Datei (`2026-08-11 Harttig Tobias Krankmeldung.pdf`, NID
+`cd288a88-3d00-459f-ae09-afef434f31a1`) hat:
+
+- **348 Bytes** md/grant-Werte (24 Keys: doc.issuer, doc.subject, sender, etc.)
+- **~948 Bytes** mdSize (Key + Value Summe, wie `SetMultiple` es berechnet)
+- **1011 Bytes** .mpk (msgpack-Encoding mit Keys + Values + Header)
+- **0 Bytes** oy.*, info.*, grant.*
+
+**948 Bytes < 1024** → unter der alten Schwelle. Trotzdem hatte die Datei einen
+Marker + .mpk.
+
+**Erläuterung:** Die Datei wurde offloaded, als sie **früher** mehr Metadaten
+hatte (>1KB). Später wurden Metadaten entfernt (via `SetArbitraryMetadata`) →
+die Metadaten schrumpften unter 1KB, aber Marker + .mpk blieben.
+
+**Kein De-Offload:** `SetMultiple` (hybrid_backend.go:256) prüft `mdSize > offloadLimit`
+**nur** wenn `offloaded=false`. Einmal offloaded (Marker=1), werden alle weiteren
+md/grant-Updates direkt in den .mpk geschrieben (Zeile 301-317), **ohne** zu
+prüfen ob die Metadaten jetzt kleiner als das Limit sind. Es gibt keinen
+"De-Offload"-Pfad — der Marker wird nie entfernt, die Metadaten bleiben im .mpk,
+egal wie klein sie werden.
+
+**Ablauf des 500-Fehlers (vor dem Fix):**
+
+1. `crossSpaceMove` kopiert die Datei vom Quell-Space (`79f79149`, NID
+   `cd288a88`) zum Ziel-Space (`5ac86946`)
+2. Am Ziel wird eine **neue Node-ID** generiert (`uuid.New()` → `4963-44c3-...`)
+3. `CopyMetadata` kopiert ALLE xattrs der Quelle (inkl. Marker) auf die
+   Ziel-Datei
+4. `SetMultiple` am Ziel:
+   - liest Marker von der Ziel-Datei → `offloaded=true`
+   - springt den Offload-Block **über** (weil `offloaded=true`)
+   - **KEIN .mpk wird für die neue Node-ID `4963-44c3-...` angelegt**
+5. `getAll` liest den Marker → versucht
+   `.oc-nodes/07/a4/fa/a2/-4963-44c3-....mpk` zu lesen → **ENOENT** → 500
+
+Der .mpk im Quell-Space (`cd288a88`) ist **irrelevant** — der MOVE erstellt eine
+neue Datei mit neuer Node-ID im Ziel-Space. Das .mpk für die neue Node-ID wird
+nie angelegt, weil der Marker das Offload unterdrückt.
+
+**Der Fix** (Marker NICHT kopieren, commit `36aa6a608`):
+
+- `SetMultiple` am Ziel sieht KEINEN Marker → `offloaded=false`
+- berechnet `mdSize` (~948 Bytes)
+- `948 <= 2048` (neues Limit) → **kein Offload**
+- kein .mpk wird angelegt → kein ENOENT → **keine 500**
+- Die Metadaten bleiben als xattrs auf der Ziel-Datei
+
+Wenn `mdSize > 2048` wäre, würde `SetMultiple` korrekt offloaden (Marker + .mpk
+für die neue Node-ID).
