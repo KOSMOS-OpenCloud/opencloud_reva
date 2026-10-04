@@ -217,4 +217,66 @@ Falls `newNode.ID` beim `CopyMetadata`-Aufruf noch `""` ist, würde
       resultierenden `.mpk`-Pfad loggen — verifiziert, dass `n.GetID()`
       den erwarteten Wert liefert
 - [ ] In `lu.IDCache.Get` den Space-Root-Pfad loggen (nur bei Cross-Space-Move)
+
+## UPDATE 2026-10-04: ROOT CAUSE + FIX
+
+### Root Cause
+
+Die obigen Hypothesen A/B/C waren **falsch**. Der eigentliche Bug:
+
+`crossSpaceMove` kopiert **alle** xattrs der Quelle auf die Ziel-Datei,
+**einschließlich** `user.oc.metadata_offloaded="1"`. Die Ziel-Datei hat aber
+noch keinen `.mpk`-File (die neue Node-ID existiert erst seit `uuid.New()`).
+
+Ablauf in `HybridBackend.SetMultiple`:
+```
+1. offloaded = xattr.Get(ZIEL, _metadataOffloadedAttr) → false (Ziel noch leer)
+2. hasOffloadingAttrs=true, offloaded=false → mdSize berechnen
+3. mdSize <= 1024 → offloadMetadata NICHT aufgerufen → offloaded bleibt false
+4. if offloaded { ... } → übersprungen → KEIN .mpk angelegt
+5. xattr.Set(ZIEL, "user.oc.metadata_offloaded", "1") → wird geschrieben!
+6. getAll(ctx, n, skipCache=true, skipOffloaded=false)
+   → liest user.oc.metadata_offloaded="1" von der Ziel-Datei
+   → os.ReadFile(MetadataPath(n)) → ENOENT  ← FEHLER
+```
+
+### Fix (commit `36aa6a608`, Tag 20261004-1105)
+
+In `crossSpaceMove` (tree.go:790) den `CopyMetadata`-Filter erweitert:
+
+```go
+case "user.oc.metadata_offloaded":
+    hasOffloadMarker = true
+    return nil, false  // NICHT kopieren
+```
+
+`HybridBackend.SetMultiple` wird den Offload neu durchführen, wenn
+`mdSize > 1024` (Grants + `user.oc.md.*`), und den `.mpk` korrekt unter
+der neuen Node-ID anlegen.
+
+### Debug-Logging (Monitoring-Phase)
+
+Jeder Cross-Space-Move loggt jetzt:
+```
+crossSpaceMove: metadata copied
+  source_node=...  dest_node=...
+  source_has_offload_marker=true/false
+  offload_attr_count=N  offload_attr_bytes=N  offload_limit=1024
+```
+
+Damit können wir im Production-Log prüfen:
+- Wie viele Moves betroffen sind (`source_has_offload_marker=true`)
+- Ob `offload_attr_bytes` nahe an 1024 liegt (dann wird neu offloaded)
+- Ob der Fix funktioniert (keine `error copying metadata` mehr)
+
+### Xattr-Größenlimits (Kontext)
+
+| FS | Limit/Xattr | Summe/Inode |
+|---|---|---|
+| ext4 | 4 KB | ~4 KB |
+| Btrfs | 3.5 KB | ~32 KB |
+| XFS | 64 KB | ~128 KB |
+
+Die 1024-Byte-Offload-Schwelle ist konservativ für ext4 gewählt.
+Bei 2 KB wäre der Puffer auf ext4 zu eng, bei 4 KB riskant.
       — verifiziert Hypothese B
