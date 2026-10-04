@@ -787,16 +787,48 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 	}
 
 	// 4. Copy all metadata from source to target (including offloaded xattrs)
+	//    Debug: count offloading attributes (grants + metadata) to see if
+	//    they exceed the 1024-byte offloadLimit in HybridBackend.SetMultiple.
+	offloadAttrCount := 0
+	offloadAttrSize := 0
+	hasOffloadMarker := false
 	if err := t.lookup.CopyMetadata(ctx, oldNode, newNode, func(attributeName string, value []byte) (newValue []byte, copy bool) {
 		switch attributeName {
 		case prefixes.ParentidAttr, prefixes.NameAttr, prefixes.IDAttr:
 			return nil, false // will be set separately below
+		case "user.oc.metadata_offloaded":
+			// BUG-FIX: Do NOT copy the offload marker to the target.
+			// The target has no .mpk file yet. If the marker is copied,
+			// HybridBackend.getAll() will try to read a non-existent .mpk.
+			// HybridBackend.SetMultiple will re-offload if mdSize > 1024.
+			hasOffloadMarker = true
+			return nil, false
 		default:
+			if strings.HasPrefix(attributeName, "user.oc.grant.") || strings.HasPrefix(attributeName, "user.oc.md.") {
+				offloadAttrCount++
+				offloadAttrSize += len(attributeName) + len(value)
+			}
 			return value, true
 		}
 	}, true); err != nil {
+		t.log.Error().Err(err).
+			Str("source_node", oldNode.ID).
+			Str("dest_node", newNode.ID).
+			Bool("source_has_offload_marker", hasOffloadMarker).
+			Int("offload_attr_count", offloadAttrCount).
+			Int("offload_attr_bytes", offloadAttrSize).
+			Int("offload_limit", 1024).
+			Msg("crossSpaceMove: error copying metadata")
 		return errors.Wrap(err, "crossSpaceMove: error copying metadata")
 	}
+	t.log.Info().
+		Str("source_node", oldNode.ID).
+		Str("dest_node", newNode.ID).
+		Bool("source_has_offload_marker", hasOffloadMarker).
+		Int("offload_attr_count", offloadAttrCount).
+		Int("offload_attr_bytes", offloadAttrSize).
+		Int("offload_limit", 1024).
+		Msg("crossSpaceMove: metadata copied")
 
 	// 5. Set correct node ID, parent ID and name
 	attribs := node.Attributes{}
