@@ -788,7 +788,7 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 
 	// 4. Copy all metadata from source to target (including offloaded xattrs)
 	//    Debug: count offloading attributes (grants + metadata) to see if
-	//    they exceed the 1024-byte offloadLimit in HybridBackend.SetMultiple.
+	//    they exceed the 2048-byte offloadLimit in HybridBackend.SetMultiple.
 	offloadAttrCount := 0
 	offloadAttrSize := 0
 	hasOffloadMarker := false
@@ -800,7 +800,7 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 			// BUG-FIX: Do NOT copy the offload marker to the target.
 			// The target has no .mpk file yet. If the marker is copied,
 			// HybridBackend.getAll() will try to read a non-existent .mpk.
-			// HybridBackend.SetMultiple will re-offload if mdSize > 1024.
+			// HybridBackend.SetMultiple will re-offload if mdSize > 2048.
 			hasOffloadMarker = true
 			return nil, false
 		default:
@@ -817,7 +817,7 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 			Bool("source_has_offload_marker", hasOffloadMarker).
 			Int("offload_attr_count", offloadAttrCount).
 			Int("offload_attr_bytes", offloadAttrSize).
-			Int("offload_limit", 1024).
+			Int("offload_limit", 2048).
 			Msg("crossSpaceMove: error copying metadata")
 		return errors.Wrap(err, "crossSpaceMove: error copying metadata")
 	}
@@ -827,7 +827,7 @@ func (t *Tree) crossSpaceMove(ctx context.Context, oldNode *node.Node, newNode *
 		Bool("source_has_offload_marker", hasOffloadMarker).
 		Int("offload_attr_count", offloadAttrCount).
 		Int("offload_attr_bytes", offloadAttrSize).
-		Int("offload_limit", 1024).
+		Int("offload_limit", 2048).
 		Msg("crossSpaceMove: metadata copied")
 
 	// 5. Set correct node ID, parent ID and name

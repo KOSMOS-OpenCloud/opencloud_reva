@@ -130,7 +130,7 @@ func New(o *options.Options, stream events.Stream, cache, historyCache *idcache.
 			return nil, err
 		}
 	case "hybrid":
-		lu, err = lookup.New(metadata.NewHybridBackend(1024, // start offloading grants after 1KB
+		lu, err = lookup.New(metadata.NewHybridBackend(2048, // start offloading grants after 2KB
 			func(n metadata.MetadataNode) string {
 				spaceRoot, _ := lu.IDCache.Get(context.Background(), n.GetSpaceID(), n.GetSpaceID())
 				if len(spaceRoot) == 0 {
