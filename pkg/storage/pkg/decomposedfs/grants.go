@@ -239,15 +239,20 @@ func (fs *Decomposedfs) RemoveGrant(ctx context.Context, ref *provider.Reference
 	if isShareGrant(ctx) && grantNode.ID != grantNode.SpaceID {
 		// Subspace grant removed. Remove the space from the grantee's
 		// index only if no grants remain in any other subspace.
-		if !fs.granteeHasRemainingSubspaceGrants(ctx, grantNode, g) {
-			switch g.Grantee.Type {
-			case provider.GranteeType_GRANTEE_TYPE_USER:
-				if err := fs.userSpaceIndex.Remove(g.Grantee.GetUserId().GetOpaqueId(), grantNode.SpaceID); err != nil {
-					appctx.GetLogger(ctx).Warn().Err(err).Msg("RemoveGrant: failed to remove user space index entry")
-				}
-			case provider.GranteeType_GRANTEE_TYPE_GROUP:
-				if err := fs.groupSpaceIndex.Remove(g.Grantee.GetGroupId().GetOpaqueId(), grantNode.SpaceID); err != nil {
-					appctx.GetLogger(ctx).Warn().Err(err).Msg("RemoveGrant: failed to remove group space index entry")
+		// For personal spaces the index entry was never created (see
+		// storeGrant), so skip removal here as well.
+		actualSpaceType, spaceTypeErr := grantNode.SpaceRoot.XattrString(ctx, prefixes.SpaceTypeAttr)
+		if spaceTypeErr != nil || actualSpaceType != _spaceTypePersonal {
+			if !fs.granteeHasRemainingSubspaceGrants(ctx, grantNode, g) {
+				switch g.Grantee.Type {
+				case provider.GranteeType_GRANTEE_TYPE_USER:
+					if err := fs.userSpaceIndex.Remove(g.Grantee.GetUserId().GetOpaqueId(), grantNode.SpaceID); err != nil {
+						appctx.GetLogger(ctx).Warn().Err(err).Msg("RemoveGrant: failed to remove user space index entry")
+					}
+				case provider.GranteeType_GRANTEE_TYPE_GROUP:
+					if err := fs.groupSpaceIndex.Remove(g.Grantee.GetGroupId().GetOpaqueId(), grantNode.SpaceID); err != nil {
+						appctx.GetLogger(ctx).Warn().Err(err).Msg("RemoveGrant: failed to remove group space index entry")
+					}
 				}
 			}
 		}
@@ -380,6 +385,17 @@ func (fs *Decomposedfs) storeGrant(ctx context.Context, n *node.Node, g *provide
 		appctx.GetLogger(ctx).Error().Err(err).
 			Str("principal", principal).Msg("Could not set grant for principal")
 		return err
+	}
+
+	// For subspace grants (nodeID != spaceID) on personal spaces, skip the
+	// user/group index: a personal space should never appear as a drive for
+	// the grantee. Access to the shared subfolder is handled by the share
+	// mount pipeline, not by ListStorageSpaces.
+	if n.ID != n.SpaceID {
+		actualSpaceType, err := n.SpaceRoot.XattrString(ctx, prefixes.SpaceTypeAttr)
+		if err == nil && actualSpaceType == _spaceTypePersonal {
+			return fs.tp.Propagate(ctx, n, 0)
+		}
 	}
 
 	// update the indexes only after successfully setting the grant
