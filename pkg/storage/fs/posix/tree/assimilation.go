@@ -501,7 +501,8 @@ func (t *Tree) assimilate(item scanItem) error {
 
 				// Step 1: Save custom metadata before any changes
 				savedMeta := map[string][]byte{}
-				if allAttrs, readErr := t.lookup.MetadataBackend().All(context.Background(), assimilationNode); readErr == nil {
+				// The node is already locked above. All() would lock it again on a cache miss and deadlock.
+				if allAttrs, readErr := t.lookup.MetadataBackend().AllWithLockedSource(context.Background(), assimilationNode, nil); readErr == nil {
 					for k, v := range allAttrs {
 						if strings.HasPrefix(k, prefixes.GrantPrefix) || strings.HasPrefix(k, prefixes.MetadataPrefix) {
 							savedMeta[k] = v
