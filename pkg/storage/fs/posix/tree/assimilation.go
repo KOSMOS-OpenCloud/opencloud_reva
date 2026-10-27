@@ -484,6 +484,17 @@ func (t *Tree) assimilate(item scanItem) error {
 		// compare metadata mtime with actual mtime. if it matches AND the path hasn't changed (move operation)
 		// we can skip the assimilation because the file was handled by us
 		if previousPath == item.Path && mtime.Equal(fi.ModTime()) {
+			// The id still maps to this path. If the reverse entry (path -> id) is missing,
+			// listings cannot resolve the node and drop it. Repair it and report success,
+			// so the caller resolves the path again.
+			if _, cachedID, lookupErr := t.lookup.IDsForPath(context.Background(), item.Path); lookupErr != nil || cachedID != id {
+				if err := t.lookup.CacheID(context.Background(), spaceID, id, item.Path); err != nil {
+					t.log.Error().Err(err).Str("path", item.Path).Str("id", id).Msg("could not repair id cache")
+					return _errSkipAlreadyKnown
+				}
+				t.log.Info().Str("path", item.Path).Str("id", id).Msg("repaired missing path entry in id cache")
+				return nil
+			}
 			return _errSkipAlreadyKnown
 		}
 
@@ -496,7 +507,7 @@ func (t *Tree) assimilate(item scanItem) error {
 				// 2. Remove only ID xattr so re-assimilate generates new ID
 				// 3. Re-assimilate (writes structural attrs under new ID)
 				// 4. Restore custom metadata under new ID
-				// 5. Cleanup old .mpk + old cache entry
+				// 5. Keep old .mpk and cache entries, previousPath still uses the old id
 				t.log.Info().Str("path", item.Path).Str("oldID", id).Msg("ID clash detected, migrating metadata")
 
 				// Step 1: Save custom metadata before any changes
@@ -509,7 +520,6 @@ func (t *Tree) assimilate(item scanItem) error {
 						}
 					}
 				}
-				oldMpkPath := t.lookup.MetadataBackend().MetadataPath(assimilationNode)
 
 				// Step 2: Release lock, remove only ID xattr (SpaceID stays for re-assimilate)
 				if err := unlock(); err != nil {
@@ -538,13 +548,8 @@ func (t *Tree) assimilate(item scanItem) error {
 					}
 				}
 
-				// Step 5: Cleanup — remove old .mpk (new one created by SetMultiple if needed)
-				_ = os.Remove(oldMpkPath)
-
-				// Step 6: Remove old IDCache entry for the previous path
-				if err := t.lookup.IDCache.DeletePath(context.Background(), previousPath); err != nil {
-					t.log.Debug().Err(err).Str("path", previousPath).Msg("could not delete old cache entry")
-				}
+				// No cleanup of the old id: previousPath still exists (checked above) and keeps
+				// the old id, its offloaded metadata (.mpk) and its id cache entries.
 			} else {
 				// this is a move
 				t.log.Debug().Str("path", item.Path).Msg("move detected")
