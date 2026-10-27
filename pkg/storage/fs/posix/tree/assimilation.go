@@ -949,15 +949,17 @@ func (t *Tree) WarmupIDCache(root string, assimilate, onlyDirty bool) error {
 			return nil
 		}
 
+		// IsIgnored() also matches the root paths. Check them first: ignore the root paths
+		// themselves, but walk into them instead of skipping the whole tree.
+		if t.Ignorer.IsRootPath(path) {
+			return nil // ignore the root paths
+		}
 		// skip irrelevant files
 		if !t.Ignorer.IsSpaceRoot(path) && t.Ignorer.IsIgnored(path) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
-		}
-		if t.Ignorer.IsRootPath(path) {
-			return nil // ignore the root paths
 		}
 
 		// skip directories containing .ocignore with "*"
