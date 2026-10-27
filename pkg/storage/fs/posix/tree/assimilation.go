@@ -1008,7 +1008,7 @@ func (t *Tree) WarmupIDCache(root string, assimilate, onlyDirty bool) error {
 			}
 		}
 
-		nodeSpaceID, id, _, _, err := t.lookup.MetadataBackend().IdentifyPath(context.Background(), path)
+		nodeSpaceID, id, _, metadataMtime, err := t.lookup.MetadataBackend().IdentifyPath(context.Background(), path)
 		if err == nil && len(id) > 0 {
 			if len(nodeSpaceID) > 0 {
 				spaceID = nodeSpaceID
@@ -1071,6 +1071,14 @@ func (t *Tree) WarmupIDCache(root string, assimilate, onlyDirty bool) error {
 					// update cached id with new path
 					if err := t.lookup.CacheID(context.Background(), spaceID, id, path); err != nil {
 						t.log.Error().Err(err).Str("spaceID", spaceID).Str("id", id).Str("path", path).Msg("could not cache id")
+					}
+					// A known file changed on disk without a watcher event (e.g. written in place while
+					// watch_fs is off): size, checksums and mtime in the metadata are stale. Re-assimilate
+					// it so they are read again. Events are suppressed, a full scan must not flood the queues.
+					if assimilate && !info.IsDir() && !metadataMtime.Equal(info.ModTime()) {
+						if err := t.assimilate(scanItem{Path: path, SuppressEvents: true}); err != nil {
+							t.log.Error().Err(err).Str("path", path).Msg("could not refresh changed item")
+						}
 					}
 				}
 			}
