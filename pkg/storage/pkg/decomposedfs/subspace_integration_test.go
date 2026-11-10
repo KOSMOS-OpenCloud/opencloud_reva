@@ -10,8 +10,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	ctxpkg "github.com/opencloud-eu/reva/v2/pkg/ctx"
+	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/node"
 	helpers "github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/testhelpers"
+	"github.com/opencloud-eu/reva/v2/pkg/utils"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -240,6 +242,60 @@ var _ = Describe("Subspace integration", func() {
 			Expect(names).To(ContainElement("finance"))
 			Expect(names).To(ContainElement("hr"))
 			Expect(names).NotTo(ContainElement("legal"))
+		})
+	})
+
+	// The suite mocks CheckPermission as allowed, so every user holds the
+	// global ManageSpaceProperties permission (subspace management bypass).
+	Describe("GetMD with subspace management bypass", func() {
+		statFor := func(user *userpb.User, path string) (*provider.ResourceInfo, error) {
+			env.Permissions.ExpectedCalls = nil
+			perms := node.NewPermissions(env.Lookup)
+			env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything).Return(
+				func(ctx context.Context, n *node.Node) (*provider.ResourcePermissions, error) {
+					return perms.AssemblePermissions(ctx, n)
+				}, nil,
+			)
+			defer func() {
+				env.Permissions.ExpectedCalls = nil
+				env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything).Return(
+					node.OwnerPermissions(), nil,
+				)
+			}()
+			ctx := ctxpkg.ContextSetUser(context.Background(), user)
+			return env.Fs.GetMD(ctx, &provider.Reference{ResourceId: env.SpaceRootRes, Path: path}, nil, nil)
+		}
+
+		BeforeEach(func() {
+			addGrant("./finance/budget", userA)
+			budget, err := env.Fs.GetMD(env.Ctx, &provider.Reference{ResourceId: env.SpaceRootRes, Path: "./finance/budget"}, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = env.CreateTestFile("report.pdf", "report-blobid", budget.Id.OpaqueId, env.SpaceRootRes.SpaceId, 10)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("does not expose files inside a subspace to non-members", func() {
+			_, err := statFor(userB, "./finance/budget/report.pdf")
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("still allows stat on the subspace folder and marks it as bypass-only", func() {
+			info, err := statFor(userB, "./finance/budget")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(info.GetPermissionSet().GetAddGrant()).To(BeTrue())
+			Expect(utils.ReadPlainFromOpaque(info.GetOpaque(), decomposedfs.SubspaceManagementBypassOpaqueKey)).To(Equal("true"))
+		})
+
+		It("does not mark the subspace folder for members", func() {
+			info, err := statFor(userA, "./finance/budget")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(utils.ReadPlainFromOpaque(info.GetOpaque(), decomposedfs.SubspaceManagementBypassOpaqueKey)).To(BeEmpty())
+		})
+
+		It("lets members stat files inside their subspace", func() {
+			info, err := statFor(userA, "./finance/budget/report.pdf")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(info.GetPermissionSet().GetInitiateFileDownload()).To(BeTrue())
 		})
 	})
 })

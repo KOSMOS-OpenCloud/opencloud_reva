@@ -1011,12 +1011,15 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 	switch {
 	case err != nil:
 		return nil, err
-	case !rp.Stat && !fs.subspaceManagementBypass(ctx, node):
+	case !rp.Stat && !fs.subspaceManagementBypassForNode(ctx, node):
 		f, _ := storagespace.FormatReference(ref)
 		return nil, errtypes.NotFound(f)
 	}
 
-	fs.subspaceGrantPermission(ctx, rp, node)
+	// remember whether the user can read the node through real grants before
+	// the management bypass inflates the permission set
+	grantedDownload := rp.InitiateFileDownload
+	bypassApplied := fs.subspaceGrantPermission(ctx, rp, node)
 
 	zerolog.Ctx(ctx).Info().
 		Str("nodeid", node.ID).Str("spaceid", node.SpaceID).
@@ -1031,6 +1034,12 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 	md, err := node.AsResourceInfo(ctx, rp, mdKeys, fieldMask, utils.IsRelativeReference(ref))
 	if err != nil {
 		return nil, err
+	}
+	if bypassApplied && !grantedDownload {
+		// the permission set only stems from the management bypass — tell
+		// consumers (e.g. the search subspace filter) that the user is not a
+		// member of this resource
+		md.Opaque = utils.AppendPlainToOpaque(md.Opaque, SubspaceManagementBypassOpaqueKey, "true")
 	}
 
 	addSpace := len(fieldMask) == 0
@@ -1060,6 +1069,21 @@ func (fs *Decomposedfs) subspaceManagementBypass(ctx context.Context, n *node.No
 	return fs.p.SubspaceManagement(ctx, n.SpaceID)
 }
 
+// SubspaceManagementBypassOpaqueKey marks a ResourceInfo whose permissions were
+// granted by the subspace management bypass only, not by CS3 grants.
+const SubspaceManagementBypassOpaqueKey = "subspace-management-bypass"
+
+// subspaceManagementBypassForNode limits the management bypass to containers.
+// Only folders can become subspaces or carry subspace grants, so files never
+// need it — granting it on files exposes names and metadata of subspace
+// content to users without access.
+func (fs *Decomposedfs) subspaceManagementBypassForNode(ctx context.Context, n *node.Node) bool {
+	if n == nil || !n.IsDir(ctx) {
+		return false
+	}
+	return fs.subspaceManagementBypass(ctx, n)
+}
+
 // subspaceGrantPermission augments a resource's permission set when the acting
 // user manages the space via the global ManageSpaceProperties permission. The
 // CreateShare path re-checks the stat'd resource: it requires "AddGrant" and
@@ -1068,9 +1092,10 @@ func (fs *Decomposedfs) subspaceManagementBypass(ctx context.Context, n *node.No
 // manager may grant any role to subspace members, so grant ALL permissions on
 // the stat result — SufficientCS3Permissions uses protobuf reflection over all
 // bool fields, and any missing field causes rejection.
-func (fs *Decomposedfs) subspaceGrantPermission(ctx context.Context, rp *provider.ResourcePermissions, n *node.Node) {
-	if rp == nil || !fs.subspaceManagementBypass(ctx, n) {
-		return
+// Returns true when the permission set was augmented.
+func (fs *Decomposedfs) subspaceGrantPermission(ctx context.Context, rp *provider.ResourcePermissions, n *node.Node) bool {
+	if rp == nil || !fs.subspaceManagementBypassForNode(ctx, n) {
+		return false
 	}
 	numFields := rp.ProtoReflect().Descriptor().Fields().Len()
 	for i := 0; i < numFields; i++ {
@@ -1079,6 +1104,7 @@ func (fs *Decomposedfs) subspaceGrantPermission(ctx context.Context, rp *provide
 			rp.ProtoReflect().Set(field, protoreflect.ValueOfBool(true))
 		}
 	}
+	return true
 }
 
 // ListFolder returns a list of resources in the specified folder
