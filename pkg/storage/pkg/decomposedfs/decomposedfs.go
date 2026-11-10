@@ -41,6 +41,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	ctxpkg "github.com/opencloud-eu/reva/v2/pkg/ctx"
@@ -1176,7 +1177,9 @@ func (fs *Decomposedfs) ListFolder(ctx context.Context, ref *provider.Reference,
 	for i := 0; i < numWorkers; i++ {
 		g.Go(func() error {
 			for child := range work {
-				np := rp
+				// own copy per child: rp is shared by all workers, adding the child's
+				// permissions to it would leak them into the following children
+				np := proto.Clone(rp).(*provider.ResourcePermissions)
 				// add this childs permissions
 				pset, _ := child.PermissionSet(ctx)
 				node.AddPermissions(np, pset)
