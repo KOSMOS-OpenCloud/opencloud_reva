@@ -1235,18 +1235,17 @@ func (fs *Decomposedfs) filterChildrenForSubspaceNavigation(ctx context.Context,
 		return children
 	}
 
-	// Build the path of the parent node relative to space root.
-	parentPath, err := fs.lu.Path(ctx, parent, func(_ *node.Node) bool { return true })
-	if err != nil {
-		return children // fallback: no filtering on error
+	u, ok := ctxpkg.ContextGetUser(ctx)
+	if !ok {
+		return []*node.Node{}
 	}
 
-	// Keep only children whose path is an ancestor of (or equal to) a subspace path,
-	// or that are inside a subspace (subspace path is ancestor of child path).
+	// Keep only children on the way to (or being) one of the user's own subspaces.
+	// Folders leading to foreign subspaces are hidden, as is everything inside them.
+	navigationIDs := node.SubspaceNavigationIDs(ctx, fs.lu, parent.SpaceRoot, subspaces, u)
 	filtered := make([]*node.Node, 0, len(children))
 	for _, child := range children {
-		childPath := filepath.Join(parentPath, child.Name)
-		if node.IsAncestorOfSubspace(childPath, subspaces) || node.IsInsideSubspace(childPath, subspaces) {
+		if _, onPath := navigationIDs[child.ID]; onPath {
 			filtered = append(filtered, child)
 		}
 	}

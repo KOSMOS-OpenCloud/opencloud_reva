@@ -239,8 +239,10 @@ func (p *Permissions) assemblePermissions(ctx context.Context, n *Node, failOnTr
 	// Subspace navigation: if the user has no permissions yet (not a space
 	// member, no grants on this path) but IS a member of a subspace in this
 	// space, grant listing so they can navigate to their subspace.
+	// Only nodes on the way to one of the user's own subspaces qualify —
+	// siblings that merely lead to foreign subspaces stay invisible.
 	if isPermissionsEmpty(ap) && len(subspaces) > 0 {
-		if p.userHasSubspaceGrant(ctx, rn, subspaces, u) {
+		if _, onPath := SubspaceNavigationIDs(ctx, p.lu, rn, subspaces, u)[n.ID]; onPath {
 			AddPermissions(ap, &provider.ResourcePermissions{
 				Stat:          true,
 				GetPath:       true,
@@ -276,6 +278,39 @@ func (p *Permissions) userHasSubspaceGrant(ctx context.Context, spaceRoot *Node,
 		}
 	}
 	return false
+}
+
+// SubspaceNavigationIDs returns the IDs of the subspaces in which the user holds
+// a grant, plus every node on the way from those subspaces up to and including
+// the space root. Subspace-only users may navigate exactly these nodes.
+// IDs instead of paths: stale paths in the subspace list (renamed or trashed
+// folders) must not open anything.
+func SubspaceNavigationIDs(ctx context.Context, lu PathLookup, spaceRoot *Node, subspaces []SubspaceEntry, u *userpb.User) map[string]struct{} {
+	navigationIDs := map[string]struct{}{}
+	for _, ss := range subspaces {
+		subNode, err := ReadNode(ctx, lu, spaceRoot.SpaceID, ss.ID, "", false, spaceRoot, true)
+		if err != nil || subNode == nil || !subNode.Exists {
+			continue
+		}
+		if np, denied, err := subNode.ReadUserPermissions(ctx, u); err != nil || denied || isPermissionsEmpty(np) {
+			continue
+		}
+		for walkNode := subNode; walkNode != nil; {
+			if _, seen := navigationIDs[walkNode.ID]; seen {
+				break // rest of the way already recorded by another subspace
+			}
+			navigationIDs[walkNode.ID] = struct{}{}
+			if walkNode.ID == spaceRoot.ID {
+				break
+			}
+			parentNode, err := walkNode.Parent(ctx)
+			if err != nil {
+				break
+			}
+			walkNode = parentNode
+		}
+	}
+	return navigationIDs
 }
 
 func AddPermissions(l *provider.ResourcePermissions, r *provider.ResourcePermissions) {

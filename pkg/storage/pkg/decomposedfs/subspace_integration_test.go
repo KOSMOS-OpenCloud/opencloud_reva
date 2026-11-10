@@ -243,6 +243,69 @@ var _ = Describe("Subspace integration", func() {
 			Expect(names).To(ContainElement("hr"))
 			Expect(names).NotTo(ContainElement("legal"))
 		})
+
+		// Posteingang layout: every folder is a subspace, most of them belong to other users.
+		Describe("with foreign subspaces", func() {
+			listFolderErr := func(user *userpb.User, path string) error {
+				env.Permissions.ExpectedCalls = nil
+				perms := node.NewPermissions(env.Lookup)
+				env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything).Return(
+					func(ctx context.Context, n *node.Node) (*provider.ResourcePermissions, error) {
+						return perms.AssemblePermissions(ctx, n)
+					}, nil,
+				)
+				defer func() {
+					env.Permissions.ExpectedCalls = nil
+					env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything).Return(
+						node.OwnerPermissions(), nil,
+					)
+				}()
+				ctx := ctxpkg.ContextSetUser(context.Background(), user)
+				_, err := env.Fs.ListFolder(ctx, &provider.Reference{ResourceId: env.SpaceRootRes, Path: path}, nil, nil)
+				return err
+			}
+
+			BeforeEach(func() {
+				addGrant("./legal", userB)
+				addGrant("./finance/taxes", userB)
+			})
+
+			It("hides folders that only lead to subspaces of other users", func() {
+				names := listFolderNames(userA, ".")
+				Expect(names).To(ContainElement("finance"))
+				Expect(names).NotTo(ContainElement("legal"))
+				Expect(names).NotTo(ContainElement("hr"))
+			})
+
+			It("hides sibling subspaces of other users on the shared path", func() {
+				names := listFolderNames(userA, "./finance")
+				Expect(names).To(ContainElement("budget"))
+				Expect(names).NotTo(ContainElement("taxes"))
+			})
+
+			It("denies listing inside a subspace of another user", func() {
+				Expect(listFolderErr(userA, "./legal")).To(HaveOccurred())
+				Expect(listFolderErr(userA, "./finance/taxes")).To(HaveOccurred())
+			})
+
+			It("each user sees only the own path", func() {
+				names := listFolderNames(userB, ".")
+				Expect(names).To(ContainElement("finance"))
+				Expect(names).To(ContainElement("legal"))
+				Expect(names).NotTo(ContainElement("hr"))
+
+				names = listFolderNames(userB, "./finance")
+				Expect(names).To(ContainElement("taxes"))
+				Expect(names).NotTo(ContainElement("budget"))
+			})
+
+			It("nested subspaces: own subspace below a foreign one stays reachable", func() {
+				addGrant("./finance", userB) // FB folder as subspace of the AL, member folder below
+				names := listFolderNames(userA, "./finance")
+				Expect(names).To(ContainElement("budget"))
+				Expect(names).NotTo(ContainElement("taxes"))
+			})
+		})
 	})
 
 	// The suite mocks CheckPermission as allowed, so every user holds the

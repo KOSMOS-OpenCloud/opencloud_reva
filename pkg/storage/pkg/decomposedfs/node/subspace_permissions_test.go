@@ -271,10 +271,12 @@ var _ = Describe("Subspace nested permissions", func() {
 		})
 
 		Describe("Navigation grants for file access", func() {
-			It("O3 can still stat x5 folder (navigation grant)", func() {
+			// x5 is not on the way to any subspace of O3 — no navigation into foreign subspaces,
+			// otherwise O3 would see the file names inside (Posteingang 2026-11-10)
+			It("O3 gets no navigation grant into the nested foreign subspace x5", func() {
 				ap := assembleFor(userO3, x5Node)
-				Expect(ap.Stat).To(BeTrue())
-				Expect(ap.ListContainer).To(BeTrue())
+				Expect(ap.Stat).To(BeFalse())
+				Expect(ap.ListContainer).To(BeFalse())
 			})
 			It("O6 can stat x3 and x5 (navigation grants to reach x6)", func() {
 				ap := assembleFor(userO6, x3Node)
