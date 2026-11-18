@@ -56,6 +56,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/aspects"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/lookup"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata"
+	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/metadata/prefixes"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/node"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/options"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/permissions"
@@ -1063,8 +1064,16 @@ func (fs *Decomposedfs) GetMD(ctx context.Context, ref *provider.Reference, mdKe
 // ManageSpaceProperties permission for the node's space. Used to allow space
 // managers to stat folders they have no CS3 grant on (subspace management
 // without a permission walk).
+//
+// Subspaces exist in project spaces only, so the bypass is limited to project
+// spaces. Without this limit a user holding the global permission could stat
+// folders in the personal space of any user and add a grant for himself there.
 func (fs *Decomposedfs) subspaceManagementBypass(ctx context.Context, n *node.Node) bool {
-	if n == nil || n.SpaceID == "" {
+	if n == nil || n.SpaceID == "" || n.SpaceRoot == nil {
+		return false
+	}
+	spaceType, err := n.SpaceRoot.XattrString(ctx, prefixes.SpaceTypeAttr)
+	if err != nil || spaceType != _spaceTypeProject {
 		return false
 	}
 	return fs.p.SubspaceManagement(ctx, n.SpaceID)

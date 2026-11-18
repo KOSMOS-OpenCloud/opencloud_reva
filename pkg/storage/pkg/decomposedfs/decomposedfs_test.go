@@ -242,6 +242,8 @@ var _ = Describe("Decomposed", func() {
 
 		Context("SetImmutable permissions", func() {
 			It("denies SetImmutable without SetImmutableContainer permission", func() {
+				// the test env registers an owner mock first, and the first registered mock wins: drop it
+				env.Permissions.ExpectedCalls = nil
 				env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything, mock.Anything).Return(&provider.ResourcePermissions{
 					Stat:            true,
 					CreateContainer: true,
@@ -279,6 +281,8 @@ var _ = Describe("Decomposed", func() {
 	Describe("Delete", func() {
 		Context("with no permissions", func() {
 			It("returns an error", func() {
+				// the test env registers an owner mock first, and the first registered mock wins: drop it
+				env.Permissions.ExpectedCalls = nil
 				env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything, mock.Anything).Return(&provider.ResourcePermissions{}, nil)
 
 				err := env.Fs.Delete(env.Ctx, ref)
@@ -289,6 +293,8 @@ var _ = Describe("Decomposed", func() {
 
 		Context("with insufficient permissions", func() {
 			It("returns an error", func() {
+				// the test env registers an owner mock first, and the first registered mock wins: drop it
+				env.Permissions.ExpectedCalls = nil
 				env.Permissions.On("AssemblePermissions", mock.Anything, mock.Anything, mock.Anything).Return(&provider.ResourcePermissions{
 					Stat:   true,
 					Delete: false,
