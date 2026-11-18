@@ -431,6 +431,57 @@ var _ = Describe("Subspace and share boundary", func() {
 		})
 	})
 
+	// The space list is what the web UI shows as "Spaces". A share must never
+	// make the project space appear there, a subspace membership must.
+	Describe("the space list of a user", func() {
+		spaceCount := func(user *userpb.User) int {
+			node.InvalidateSubspaceCache(env.SpaceRootRes.SpaceId)
+			useRealPermissions()
+			defer useOwnerPermissions()
+
+			userContext := ctxpkg.ContextSetUser(context.Background(), user)
+			spaces, err := env.Fs.ListStorageSpaces(userContext, []*provider.ListStorageSpacesRequest_Filter{
+				{Type: provider.ListStorageSpacesRequest_Filter_TYPE_USER, Term: &provider.ListStorageSpacesRequest_Filter_User{User: user.Id}},
+			}, false)
+			Expect(err).ToNot(HaveOccurred())
+			projectSpaces := 0
+			for _, space := range spaces {
+				if space.GetSpaceType() == "project" {
+					projectSpaces++
+				}
+			}
+			return projectSpaces
+		}
+
+		It("contains the project space for a space member", func() {
+			Expect(spaceCount(spaceMember)).To(Equal(1))
+		})
+
+		It("does not contain the project space for the recipient of a plain share", func() {
+			sharePlain("./open", shareRecipient)
+			Expect(spaceCount(shareRecipient)).To(BeZero())
+		})
+
+		It("does not contain the project space for the recipient of a plain share inside a subspace", func() {
+			addSubspaceMember("./secret", subspaceMember)
+			sharePlain("./secret/inner", shareRecipient)
+			Expect(spaceCount(shareRecipient)).To(BeZero())
+		})
+
+		It("contains the project space for a subspace member, until the last membership is removed", func() {
+			addSubspaceMember("./secret", subspaceMember)
+			Expect(spaceCount(subspaceMember)).To(Equal(1))
+
+			removeGrant("./secret", subspaceMember)
+			Expect(spaceCount(subspaceMember)).To(BeZero())
+		})
+
+		It("does not contain the project space for an outsider", func() {
+			addSubspaceMember("./secret", subspaceMember)
+			Expect(spaceCount(outsider)).To(BeZero())
+		})
+	})
+
 	Describe("who may create a subspace", func() {
 		It("a subspace grant by a user without the manage-space-properties permission stays a plain grant", func() {
 			managerContext := storageprovider.WithSubspaceGrant(ctxpkg.ContextSetUser(context.Background(), env.SpaceManager))
