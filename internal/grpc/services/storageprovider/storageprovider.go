@@ -1178,6 +1178,23 @@ func SpaceTypeFromContext(ctx context.Context) (string, bool) {
 	return spaceType, ok
 }
 
+type subspaceGrantKey struct{}
+
+// WithSubspaceGrant marks the context of an AddGrant call as an explicit
+// subspace membership. Only such a grant may register the folder as a
+// subspace. A grant without the marker is a plain share and never changes
+// the access rules of the folder.
+func WithSubspaceGrant(ctx context.Context) context.Context {
+	return context.WithValue(ctx, subspaceGrantKey{}, true)
+}
+
+// SubspaceGrantFromContext reports whether the grant was requested as a
+// subspace membership (see WithSubspaceGrant).
+func SubspaceGrantFromContext(ctx context.Context) bool {
+	isSubspaceGrant, _ := ctx.Value(subspaceGrantKey{}).(bool)
+	return isSubspaceGrant
+}
+
 func (s *Service) AddGrant(ctx context.Context, req *provider.AddGrantRequest) (*provider.AddGrantResponse, error) {
 	ctx = ctxpkg.ContextSetLockID(ctx, req.LockId)
 
@@ -1186,6 +1203,9 @@ func (s *Service) AddGrant(ctx context.Context, req *provider.AddGrantRequest) (
 	// https://github.com/owncloud/ocis/issues/4312
 	if utils.ExistsInOpaque(req.Opaque, "spacegrant") {
 		ctx = WithSpaceType(ctx, utils.ReadPlainFromOpaque(req.Opaque, "spacetype"))
+	}
+	if utils.ExistsInOpaque(req.Opaque, utils.SubspaceGrantOpaqueKey) {
+		ctx = WithSubspaceGrant(ctx)
 	}
 
 	// error out if no permissions are set

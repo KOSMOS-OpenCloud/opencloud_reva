@@ -136,10 +136,14 @@ func (fs *Decomposedfs) AddGrant(ctx context.Context, ref *provider.Reference, g
 		return err
 	}
 
-	// Auto-register as subspace when a grant is added to a non-root folder
-	// in a project space.
-	appctx.GetLogger(ctx).Info().Str("nodeid", grantNode.ID).Str("spaceid", grantNode.SpaceID).Msg("AddGrant: calling autoAddSubspace")
-	fs.autoAddSubspace(ctx, grantNode)
+	// Register the folder as subspace only when the grant was requested as a
+	// subspace membership. A plain share on a folder stays a share: it must
+	// not turn the folder into a subspace, which would cut off the access of
+	// the space members at this folder.
+	if storageprovider.SubspaceGrantFromContext(ctx) {
+		appctx.GetLogger(ctx).Info().Str("nodeid", grantNode.ID).Str("spaceid", grantNode.SpaceID).Msg("AddGrant: calling autoAddSubspace")
+		fs.autoAddSubspace(ctx, grantNode)
+	}
 
 	return nil
 }
@@ -407,9 +411,10 @@ func (fs *Decomposedfs) storeGrant(ctx context.Context, n *node.Node, g *provide
 	return fs.tp.Propagate(ctx, n, 0)
 }
 
-// autoAddSubspace registers a folder as subspace when it receives its first
-// share grant in a project space. This keeps the subspace list consistent
-// without relying on the UI to call SetSubspace separately.
+// autoAddSubspace registers a folder as subspace when it receives a grant
+// that was requested as a subspace membership (see AddGrant). This keeps the
+// subspace list consistent without relying on the UI to call SetSubspace
+// separately.
 func (fs *Decomposedfs) autoAddSubspace(ctx context.Context, n *node.Node) {
 	log := appctx.GetLogger(ctx)
 	// Only for non-root nodes in project spaces (SPACE_OWNER type)

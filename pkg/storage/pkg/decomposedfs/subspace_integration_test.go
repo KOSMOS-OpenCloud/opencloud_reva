@@ -9,6 +9,7 @@ import (
 	provider "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/opencloud-eu/reva/v2/internal/grpc/services/storageprovider"
 	ctxpkg "github.com/opencloud-eu/reva/v2/pkg/ctx"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs"
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/node"
@@ -89,12 +90,57 @@ var _ = Describe("Subspace integration", func() {
 		}
 	})
 
+	// addGrant adds a subspace member: the grant is marked as subspace
+	// membership, which registers the folder as subspace.
 	addGrant := func(path string, user *userpb.User) {
+		Expect(env.Fs.AddGrant(storageprovider.WithSubspaceGrant(env.Ctx), &provider.Reference{ResourceId: env.SpaceRootRes, Path: path}, &provider.Grant{
+			Grantee:     &provider.Grantee{Type: provider.GranteeType_GRANTEE_TYPE_USER, Id: &provider.Grantee_UserId{UserId: user.Id}},
+			Permissions: editorPerms,
+		})).To(Succeed())
+	}
+
+	// addPlainShare adds a grant the way a normal share does: no subspace marker.
+	addPlainShare := func(path string, user *userpb.User) {
 		Expect(env.Fs.AddGrant(env.Ctx, &provider.Reference{ResourceId: env.SpaceRootRes, Path: path}, &provider.Grant{
 			Grantee:     &provider.Grantee{Type: provider.GranteeType_GRANTEE_TYPE_USER, Id: &provider.Grantee_UserId{UserId: user.Id}},
 			Permissions: editorPerms,
 		})).To(Succeed())
 	}
+
+	subspaceIDs := func() []string {
+		node.InvalidateSubspaceCache(env.SpaceRootRes.SpaceId)
+		spaceRoot, err := env.Lookup.NodeFromResource(env.Ctx, &provider.Reference{ResourceId: env.SpaceRootRes})
+		Expect(err).ToNot(HaveOccurred())
+		ids := []string{}
+		for _, entry := range node.GetSubspaceList(env.Ctx, spaceRoot) {
+			ids = append(ids, entry.ID)
+		}
+		return ids
+	}
+
+	nodeIDOf := func(path string) string {
+		n, err := env.Lookup.NodeFromResource(env.Ctx, &provider.Reference{ResourceId: env.SpaceRootRes, Path: path})
+		Expect(err).ToNot(HaveOccurred())
+		return n.ID
+	}
+
+	Describe("Subspace registration", func() {
+		It("does not turn a folder into a subspace when it is shared the normal way", func() {
+			addPlainShare("./finance/budget", userA)
+			Expect(subspaceIDs()).To(BeEmpty())
+		})
+
+		It("registers the folder as subspace for an explicit subspace grant", func() {
+			addGrant("./finance/budget", userA)
+			Expect(subspaceIDs()).To(ConsistOf(nodeIDOf("./finance/budget")))
+		})
+
+		It("keeps a plain share on another folder out of the subspace list", func() {
+			addGrant("./finance/budget", userA)
+			addPlainShare("./hr", userB)
+			Expect(subspaceIDs()).To(ConsistOf(nodeIDOf("./finance/budget")))
+		})
+	})
 
 	removeGrant := func(path string, user *userpb.User) {
 		Expect(env.Fs.RemoveGrant(env.Ctx, &provider.Reference{ResourceId: env.SpaceRootRes, Path: path}, &provider.Grant{

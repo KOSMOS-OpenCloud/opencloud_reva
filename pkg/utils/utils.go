@@ -480,6 +480,11 @@ func SpaceGrantOpaque() *types.Opaque {
 	}
 }
 
+// SubspaceGrantOpaqueKey marks a share or grant request as an explicit
+// subspace membership. Without it a grant on a folder is a plain share and
+// must not register the folder as a subspace.
+const SubspaceGrantOpaqueKey = "subspacegrant"
+
 // MergeOpaques will merge the opaques. If a key exists in both opaques
 // the values from the first opaque will be taken
 func MergeOpaques(o *types.Opaque, p *types.Opaque) *types.Opaque {

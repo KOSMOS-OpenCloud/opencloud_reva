@@ -482,6 +482,10 @@ func (s *svc) addShare(ctx context.Context, req *collaboration.CreateShareReques
 		if refIsSpaceRoot(req.ResourceInfo.Id) {
 			opaque = utils.SpaceGrantOpaque()
 			utils.AppendPlainToOpaque(opaque, "spacetype", req.ResourceInfo.GetSpace().GetSpaceType())
+		} else if utils.ExistsInOpaque(req.GetOpaque(), utils.SubspaceGrantOpaqueKey) {
+			// explicit subspace membership: only then the storage may register
+			// the folder as a subspace
+			opaque = utils.AppendPlainToOpaque(opaque, utils.SubspaceGrantOpaqueKey, "true")
 		}
 		if grants.PermissionsEqual(req.Grant.Permissions.Permissions, &provider.ResourcePermissions{}) {
 			status, err = s.denyGrant(ctx, req.ResourceInfo.Id, req.Grant.Grantee, opaque)
