@@ -21,12 +21,12 @@ Die Kette Graph-API → Gateway → Storageprovider prüfen diese Specs nicht. D
 laufende Instanz: `opencloud/testbench/subspace_share_boundary.py`.
 
 
-## Bekannte Fehler bei `--all` (Stand 2026-11-18)
+## Bekannte Fehler bei `--all` (Stand 2026-11-20)
 
-- 3 × FAIL „can delete (purge) project spaces“ (by-user-id-Index): Die Specs purgen als Space-Owner, der Mock der
-  Datei erlaubt `delete-all-spaces` nur dem `DeleteAllSpacesUser` → PermissionDenied. Ungeklärt, ob Test oder Mock
-  dem gewollten Verhalten entspricht (Specs stammen aus Upstream, Merge #695).
-- `decomposedfs/upload` schlägt im Gesamtlauf gelegentlich fehl, allein dreimal grün. Nicht untersucht.
+- Keine festen Fehler: `--all` läuft grün. Die 3 purge-Specs waren Testfehler (purgten als Space-Owner, seit
+  750675c14 darf das nur `delete-all-spaces`); behoben mit dem Upstream-Testfix b08d8bb99.
+- `decomposedfs/upload` schlug im Gesamtlauf am 18.11. gelegentlich fehl. Am 20.11. in 7 Gesamtläufen nicht
+  aufgetreten, Ursache ungeklärt.
 
 Behoben am 2026-11-18: 5 Panics (Verwaltungs-Bypass fragte in jedem Space den Rechte-Dienst) und 3 FAIL
 (Delete ohne Recht, SetImmutable ohne Recht: Mock zu spät registriert, der Test prüfte mit Owner-Rechten).
