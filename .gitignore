@@ -49,3 +49,6 @@ tmp/
 .drone.yml
 
 toolchain
+
+# TODOs liegen in BRIEFINGS/todos, nicht im Repo
+TODO_*.md
