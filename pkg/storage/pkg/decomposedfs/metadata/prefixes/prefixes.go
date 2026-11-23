@@ -107,6 +107,9 @@ const (
 	SpaceImageAttr       string = OcPrefix + "space.image"
 	SpaceAliasAttr       string = OcPrefix + "space.alias"
 	SpaceTenantIDAttr    string = OcPrefix + "space.tenantid"
+	// SpaceKindAttr is a free classification of a space that is independent of its type,
+	// e.g. "mail" for a project space that holds the messages of a mail account.
+	SpaceKindAttr string = OcPrefix + "space.kind"
 
 	// ImmutableAttr marks a resource as immutable.
 	// On files: content is fixed, irreversible.

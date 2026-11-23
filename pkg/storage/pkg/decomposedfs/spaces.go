@@ -25,6 +25,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -64,7 +65,18 @@ const (
 	spaceIDAny         = "*"
 
 	quotaUnrestricted = 0
+
+	// spaceKindOpaqueKey is the opaque key that carries the space kind on create, update and read
+	spaceKindOpaqueKey = "spaceKind"
 )
+
+// spaceKindPattern restricts a space kind to a short lower case identifier
+var spaceKindPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+
+// validSpaceKind reports whether the given space kind may be stored
+func validSpaceKind(spaceKind string) bool {
+	return spaceKindPattern.MatchString(spaceKind)
+}
 
 // CreateStorageSpace creates a storage space
 func (fs *Decomposedfs) CreateStorageSpace(ctx context.Context, req *provider.CreateStorageSpaceRequest) (*provider.CreateStorageSpaceResponse, error) {
@@ -99,6 +111,10 @@ func (fs *Decomposedfs) CreateStorageSpace(ctx context.Context, req *provider.Cr
 	}
 
 	description := utils.ReadPlainFromOpaque(req.Opaque, "description")
+	spaceKind := utils.ReadPlainFromOpaque(req.Opaque, spaceKindOpaqueKey)
+	if spaceKind != "" && !validSpaceKind(spaceKind) {
+		return nil, errtypes.BadRequest("decomposedfs: spaces: invalid space kind")
+	}
 	alias := utils.ReadPlainFromOpaque(req.Opaque, "spaceAlias")
 	if alias == "" {
 		alias = templates.WithSpacePropertiesAndUser(u, req.Type, req.Name, spaceID, fs.o.GeneralSpaceAliasTemplate)
@@ -194,6 +210,10 @@ func (fs *Decomposedfs) CreateStorageSpace(ctx context.Context, req *provider.Cr
 
 	if alias != "" {
 		metadata.SetString(prefixes.SpaceAliasAttr, alias)
+	}
+
+	if spaceKind != "" {
+		metadata.SetString(prefixes.SpaceKindAttr, spaceKind)
 	}
 
 	if err := root.SetXattrsWithContext(ctx, metadata, true); err != nil {
@@ -610,6 +630,14 @@ func (fs *Decomposedfs) UpdateStorageSpace(ctx context.Context, req *provider.Up
 		if alias := utils.ReadPlainFromOpaque(space.Opaque, "spaceAlias"); alias != "" {
 			metadata.SetString(prefixes.SpaceAliasAttr, alias)
 		}
+		if spaceKind := utils.ReadPlainFromOpaque(space.Opaque, spaceKindOpaqueKey); spaceKind != "" {
+			if !validSpaceKind(spaceKind) {
+				return &provider.UpdateStorageSpaceResponse{
+					Status: &v1beta11.Status{Code: v1beta11.Code_CODE_INVALID_ARGUMENT, Message: "decomposedFS: invalid space kind"},
+				}, nil
+			}
+			metadata.SetString(prefixes.SpaceKindAttr, spaceKind)
+		}
 		if image := utils.ReadPlainFromOpaque(space.Opaque, "image"); image != "" {
 			imageID, err := storagespace.ParseID(image)
 			if err != nil {
@@ -661,7 +689,7 @@ func (fs *Decomposedfs) UpdateStorageSpace(ctx context.Context, req *provider.Up
 
 	if !permissions.IsManager(sp) {
 		// We are not a space manager. We need to check for additional permissions.
-		k := []string{prefixes.NameAttr, prefixes.SpaceDescriptionAttr}
+		k := []string{prefixes.NameAttr, prefixes.SpaceDescriptionAttr, prefixes.SpaceKindAttr}
 		if !permissions.IsEditor(sp) {
 			k = append(k, prefixes.SpaceReadmeAttr, prefixes.SpaceAliasAttr, prefixes.SpaceImageAttr)
 		}
@@ -1177,6 +1205,9 @@ func (fs *Decomposedfs) StorageSpaceFromNode(ctx context.Context, n *node.Node, 
 	}
 	if sa := spaceAttributes.String(prefixes.SpaceAliasAttr); sa != "" {
 		space.Opaque = utils.AppendPlainToOpaque(space.Opaque, "spaceAlias", sa)
+	}
+	if spaceKind := spaceAttributes.String(prefixes.SpaceKindAttr); spaceKind != "" {
+		space.Opaque = utils.AppendPlainToOpaque(space.Opaque, spaceKindOpaqueKey, spaceKind)
 	}
 
 	// add rootinfo

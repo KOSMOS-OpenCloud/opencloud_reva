@@ -35,6 +35,7 @@ import (
 	"github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/spaceidindex"
 	helpers "github.com/opencloud-eu/reva/v2/pkg/storage/pkg/decomposedfs/testhelpers"
 	"github.com/opencloud-eu/reva/v2/pkg/storagespace"
+	"github.com/opencloud-eu/reva/v2/pkg/utils"
 	"github.com/stretchr/testify/mock"
 	"google.golang.org/grpc"
 )
@@ -94,6 +95,52 @@ var _ = Describe("Spaces", func() {
 				Expect(resp.StorageSpace.Name).To(Equal("Mission to Mars"))
 				Expect(resp.StorageSpace.SpaceType).To(Equal("project"))
 			})
+		})
+
+		Context("when creating a space with a kind", func() {
+			It("stores the kind and returns it in the opaque", func() {
+				resp, err := env.Fs.CreateStorageSpace(env.Ctx, &provider.CreateStorageSpaceRequest{
+					Name:   "Mailbox",
+					Type:   "project",
+					Opaque: utils.AppendPlainToOpaque(nil, "spaceKind", "mail"),
+				})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resp.Status.Code).To(Equal(rpcv1beta1.Code_CODE_OK))
+				Expect(resp.StorageSpace.SpaceType).To(Equal("project"))
+				Expect(utils.ReadPlainFromOpaque(resp.StorageSpace.Opaque, "spaceKind")).To(Equal("mail"))
+
+				listedSpaces, err := env.Fs.ListStorageSpaces(env.Ctx, []*provider.ListStorageSpacesRequest_Filter{
+					{
+						Type: provider.ListStorageSpacesRequest_Filter_TYPE_ID,
+						Term: &provider.ListStorageSpacesRequest_Filter_Id{Id: resp.StorageSpace.Id},
+					},
+				}, false)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(listedSpaces).To(HaveLen(1))
+				Expect(utils.ReadPlainFromOpaque(listedSpaces[0].Opaque, "spaceKind")).To(Equal("mail"))
+			})
+
+			It("does not return a kind when none was given", func() {
+				resp, err := env.Fs.CreateStorageSpace(env.Ctx, &provider.CreateStorageSpaceRequest{Name: "Plain project", Type: "project"})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resp.StorageSpace.Opaque.GetMap()).ToNot(HaveKey("spaceKind"))
+			})
+
+			DescribeTable("rejects an invalid kind",
+				func(invalidKind string) {
+					_, err := env.Fs.CreateStorageSpace(env.Ctx, &provider.CreateStorageSpaceRequest{
+						Name:   "Invalid kind",
+						Type:   "project",
+						Opaque: utils.AppendPlainToOpaque(nil, "spaceKind", invalidKind),
+					})
+					Expect(err).To(HaveOccurred())
+				},
+				Entry("upper case", "Mail"),
+				Entry("leading digit", "1mail"),
+				Entry("leading dash", "-mail"),
+				Entry("whitespace", "mail box"),
+				Entry("too long", "a234567890123456789012345678901234"),
+			)
 		})
 
 		Context("needs to check node permissions", func() {
@@ -569,6 +616,63 @@ var _ = Describe("Spaces", func() {
 				},
 				rpcv1beta1.Code_CODE_NOT_FOUND,
 			),
+			Entry("Manager can set the kind",
+				func() (*userv1beta1.User, *provider.UpdateStorageSpaceRequest) {
+					return manager, &provider.UpdateStorageSpaceRequest{
+						StorageSpace: &provider.StorageSpace{
+							Id:     spaceid,
+							Opaque: utils.AppendPlainToOpaque(nil, "spaceKind", "mail"),
+						},
+					}
+				},
+				rpcv1beta1.Code_CODE_OK,
+			),
+			Entry("Manager cannot set an invalid kind",
+				func() (*userv1beta1.User, *provider.UpdateStorageSpaceRequest) {
+					return manager, &provider.UpdateStorageSpaceRequest{
+						StorageSpace: &provider.StorageSpace{
+							Id:     spaceid,
+							Opaque: utils.AppendPlainToOpaque(nil, "spaceKind", "Mail Box"),
+						},
+					}
+				},
+				rpcv1beta1.Code_CODE_INVALID_ARGUMENT,
+			),
+			Entry("Editor cannot set the kind",
+				func() (*userv1beta1.User, *provider.UpdateStorageSpaceRequest) {
+					return editor, &provider.UpdateStorageSpaceRequest{
+						StorageSpace: &provider.StorageSpace{
+							Id:     spaceid,
+							Opaque: utils.AppendPlainToOpaque(nil, "spaceKind", "mail"),
+						},
+					}
+				},
+				rpcv1beta1.Code_CODE_PERMISSION_DENIED,
+			),
+			Entry("Admin can set the kind",
+				func() (*userv1beta1.User, *provider.UpdateStorageSpaceRequest) {
+					return admin, &provider.UpdateStorageSpaceRequest{
+						StorageSpace: &provider.StorageSpace{
+							Id:     spaceid,
+							Opaque: utils.AppendPlainToOpaque(nil, "spaceKind", "mail"),
+						},
+					}
+				},
+				rpcv1beta1.Code_CODE_OK,
+			),
 		)
+
+		It("returns the kind set by an update", func() {
+			managerCtx := ctxpkg.ContextSetUser(context.Background(), manager)
+			updateResponse, err := env.Fs.UpdateStorageSpace(managerCtx, &provider.UpdateStorageSpaceRequest{
+				StorageSpace: &provider.StorageSpace{
+					Id:     spaceid,
+					Opaque: utils.AppendPlainToOpaque(nil, "spaceKind", "mail"),
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updateResponse.Status.Code).To(Equal(rpcv1beta1.Code_CODE_OK))
+			Expect(utils.ReadPlainFromOpaque(updateResponse.StorageSpace.Opaque, "spaceKind")).To(Equal("mail"))
+		})
 	})
 })
